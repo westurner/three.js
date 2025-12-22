@@ -9,16 +9,122 @@
 	<body>
 
 		<div id="info">
-			<a href="https://threejs.org/" target="_blank" rel="noopener" class="logo-link"></a>
+			<!--<a href="https://threejs.org/" target="_blank" rel="noopener" class="logo-link"></a>-->
 
 			<div class="title-wrapper">
-				<a href="https://threejs.org/" target="_blank" rel="noopener">three.js</a><span>Attractors Particles</span>
+				<span>Particle Attractor System</span><br/>
 			</div>
+			<small>(Made w/ <a href="https://threejs.org/" target="_blank" rel="noopener">three.js</a>)</small>
 
+
+			<!--
 			<small>
-				Compute Attractors Particles.
+				a particle attractor system
 			</small>
+
+			<code style="margin-top: 3em; font-family: monospace;">
+				- [o] style button background color
+				- [ ] hide controls when controlsMode = hidden
+				- [ ] template a function call with the parameters on params.*.onUpdate
+					simulate({param1=, })
+				- [ ] instructions
+				  - vary the parameters and observe
+				  - note combinations of parameters that the simulator cannot run in realtime on this CPU and GPU
+				- [ ] port drei/src/core/TransformControls.tsx to threejs/addons/TransformControls[2]
+				  - TransformControls.tsx has params for 
+				  - https://github.com/pmndrs/drei/blob/master/src/core/TransformControls.tsx
+				- [ ] show attractors' TransformControls params in the params gui too
+				- [ ] add support for displaying in a textarea in params, and exporting params as JSON
+				- [ ] add support to load named sets of default params
+				- [ ] add support to load a set of params from JSON
+				- [ ] update finalColor according to position relative to origin, to help with camera perspective
+				  - make color indicate position according to origin
+				  - apply transforms for mass and acceleration
+				- [ ] add Web MIDI support
+				- [ ] add Gamepad API support
+				  - https://developer.mozilla.org/en-US/docs/Web/API/Gamepad_API/Using_the_Gamepad_API
+			</code>
+			-->
 		</div>
+		<style>
+
+			:root {
+				--accent-color: #743333; 
+				--color-orange: #d4892f;
+				--accent-color: #d4892f; 
+			}
+			.title-wrapper {
+				position: relative;
+				margin-left: 2px;
+				margin-top: 2px;
+				left: 0;
+				top: 0;
+				/*top: 2px;*/
+			}
+
+			.title-wrapper > span::before {
+				display: none;
+			}
+
+			#info > small {
+				position: fixed;
+				left: 4px;
+				bottom: 4px;
+				top: unset;
+				opacity: 0.2;
+			}
+
+
+			.title-wrapper > span {
+				padding-left: inherit;
+			}
+
+			#profiler-mini-panel, #profiler-mini-panel.visible {
+				opacity: 0.9;
+			}
+
+			#profiler-toggle {
+				opacity: 0.4;
+			}
+
+			.list-item-wrapper.header-wrapper > .list-item-row {
+  				/*color: var(--text-primary); */
+				color: var(--color-orange);
+			}
+
+
+			.list-item-row.collapsible {
+				/* background-color: transparent !important; */
+				/* background-color: transparent !important; */
+				background-color: var(--profiler-header) !important;
+			}
+
+
+			@media (hover: hover) {
+				.list-item-row.collapsible:hover {
+					background-color: black !important;
+					/*
+					background-color: unset;
+					background-color: var(--profiler-header) !important;
+					*/
+					/* background-color: rgba(0, 170, 255, 0.25) !important; */
+					/*filter: saturate(50%);*/
+					/* filter: invert(100%); */
+					/*
+					filter: brightness(0.5) contrast(1.2); */
+				}
+			}
+
+
+
+			.builtin-tab-btn.active {
+				/* background-color: rgba(0, 170, 255, 0.2); */
+				background-color: rgba(200, 135, 120, 0.2);
+				// TODO: hover
+			}
+
+
+		</style>
 
 		<script type="importmap">
 			{
@@ -98,7 +204,12 @@
 				const attractors = [];
 				const helpersRingGeometry = new THREE.RingGeometry( 1, 1.02, 32, 1, 0, Math.PI * 1.5 );
 				const helpersArrowGeometry = new THREE.ConeGeometry( 0.1, 0.4, 12, 1, false );
-				const helpersMaterial = new THREE.MeshBasicMaterial( { side: THREE.DoubleSide } );
+				//const helpersMaterial = new THREE.MeshBasicMaterial( { side: THREE.DoubleSide } );
+				const helpersMaterial = new THREE.MeshPhysicalMaterial({
+					transparent: true,
+					opacity: 0.7,
+					//wireframe: true,
+				});
 
 				for ( let i = 0; i < attractorsPositions.array.length; i ++ ) {
 
@@ -131,6 +242,14 @@
 					attractor.controls.attach( attractor.reference );
 					attractor.controls.visible = true;
 					attractor.controls.enabled = attractor.controls.visible;
+					// attractor.controls.setColors( 0xeb5555, 0x55eb55, 0x5555eb );
+					// attractor.controls.setColors( 0xeb0000, 0x00eb00, 0x0000eb );
+					// attractor.controls.setColors( 0x000000, 0x000000, 0x000000 );
+					// attractor.controls.setColors( 0x303030, 0x303030, 0x303030 );
+					// attractor.controls.setColors( 0x999999, 0x999999, 0x999999 );
+					// attractor.controls.setColors( 0x000000, 0x000000, 0x000000 );
+					attractor.controls.setColors( 0x222222, 0x222222, 0x222222 );
+				
 					scene.add( attractor.controls.getHelper() );
 
 					attractor.controls.addEventListener( 'dragging-changed', ( event ) => {
@@ -139,11 +258,22 @@
 
 					} );
 
+
+					function logObject(objkey, obj) {
+						for (const [key, value] of Object.entries(obj)) {
+							console.log(`${objkey}.${key}: ${value}`);
+						}
+					};
+
 					attractor.controls.addEventListener( 'change', () => {
 
 						attractor.position.copy( attractor.reference.position );
-						attractor.orientation.copy( new THREE.Vector3( 0, 1, 0 ).applyQuaternion( attractor.reference.quaternion ) );
+						logObject('attractor.position', attractor.position);
+						logObject('attractor.orientation', attractor.orientation);
 
+						attractor.orientation.copy( new THREE.Vector3( 0, 1, 0 ).applyQuaternion( attractor.reference.quaternion ) );
+						logObject('attractor.position', attractor.position);
+						logObject('attractor.orientation', attractor.orientation);
 					} );
 
 					attractors.push( attractor );
@@ -158,14 +288,15 @@
 				const attractorMass = uniform( Number( `1e${7}` ) );
 				const particleGlobalMass = uniform( Number( `1e${4}` ) );
 				const timeScale = uniform( 1 );
-				const spinningStrength = uniform( 2.75 );
-				const maxSpeed = uniform( 8 );
+				const spinningStrength = uniform( 3.51 );
+				const maxSpeed = uniform( 6.85 );
 				const gravityConstant = 6.67e-11;
 				const velocityDamping = uniform( 0.1 );
-				const scale = uniform( 0.008 );
+				const scale = uniform( 0.007 );
 				const boundHalfExtent = uniform( 8 );
-				const colorA = uniform( color( '#5900ff' ) );
-				const colorB = uniform( color( '#ffa575' ) );
+				//const colorA = uniform( color( '#a0b0c0' ) );
+				const colorA = uniform( color( '#1755a2' ) );
+				const colorB = uniform( color( '#d4892f' ) );
 
 				const positionBuffer = instancedArray( count, 'vec3' );
 				const velocityBuffer = instancedArray( count, 'vec3' );
@@ -282,6 +413,8 @@
 					const speed = velocity.length();
 					const colorMix = speed.div( maxSpeed ).smoothstep( 0, 0.5 );
 					const finalColor = mix( colorA, colorB, colorMix );
+
+					// TODO: update finalColor according to position relative to origin, to help with camera perspective
 
 					return vec4( finalColor, 1 );
 
