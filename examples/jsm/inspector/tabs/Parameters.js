@@ -2,7 +2,7 @@ import { Tab } from '../ui/Tab.js';
 import { List } from '../ui/List.js';
 import { Item } from '../ui/Item.js';
 import { createValueSpan } from '../ui/utils.js';
-import { ValueNumber, ValueSlider, ValueSelect, ValueCheckbox, ValueColor, ValueButton } from '../ui/Values.js';
+import { ValueNumber, ValueSlider, ValueSelect, ValueCheckbox, ValueColor, ValueButton, ValueTextArea } from '../ui/Values.js';
 
 class ParametersGroup {
 
@@ -50,6 +50,10 @@ class ParametersGroup {
 
 			item = this.addBoolean( object, property );
 
+		} else if ( type === 'string' ) {
+
+			item = this.addTextArea( object, property );
+
 		} else if ( type === 'function' ) {
 
 			item = this.addButton( object, property, ...params );
@@ -72,14 +76,22 @@ class ParametersGroup {
 
 		editor.listen = () => {
 
-			const update = () => {
+			let lastUpdate = 0;
 
-				const value = editor.getValue();
-				const propertyValue = object[ property ];
+			const update = ( time ) => {
 
-				if ( value !== propertyValue ) {
+				if ( time - lastUpdate > 100 ) {
 
-					editor.setValue( propertyValue );
+					const value = editor.getValue();
+					const propertyValue = object[ property ];
+
+					if ( value !== propertyValue ) {
+
+						editor.setValue( propertyValue );
+
+					}
+
+					lastUpdate = time;
 
 				}
 
@@ -143,6 +155,29 @@ class ParametersGroup {
 		} );
 
 		// extend object property
+
+		this._addParameter( object, property, editor, subItem );
+
+		return editor;
+
+	}
+
+	addTextArea( object, property ) {
+
+		const value = object[ property ];
+
+		const editor = new ValueTextArea( value );
+		editor.addEventListener( 'change', ( { value } ) => {
+
+			object[ property ] = value;
+
+		} );
+
+		const description = createValueSpan();
+		description.textContent = property;
+
+		const subItem = new Item( description, editor.domElement );
+		this.paramList.add( subItem );
 
 		this._addParameter( object, property, editor, subItem );
 

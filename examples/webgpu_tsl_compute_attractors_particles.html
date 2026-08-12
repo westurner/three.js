@@ -33,10 +33,13 @@
 				- [ ] port drei/src/core/TransformControls.tsx to threejs/addons/TransformControls[2]
 				  - TransformControls.tsx has params for 
 				  - https://github.com/pmndrs/drei/blob/master/src/core/TransformControls.tsx
-				- [ ] show attractors' TransformControls params in the params gui too
-				- [ ] add support for displaying in a textarea in params, and exporting params as JSON
-				- [ ] add support to load named sets of default params
-				- [ ] add support to load a set of params from JSON
+				- [x] show attractors' TransformControls params in the params gui too
+				- [x] add support for displaying in a textarea in params, and exporting params as JSON
+				- [x] add support to load named sets of default params
+				- [x] add support to load a set of params from JSON
+				- [x] add a 'save' button to save params as a preset in localStorage with the iso8601 datetime as the name, and update the presets dropdown in the params gui
+				- [x] add an 'Export all presets' and an 'Export saved presets' button to the params gui that opens a modal popover with a large textarea. subclass/extend/copu_and_extend ValueTextArea as ValueJSONTextarea
+				- [x] when the user modifies any params value, change the preset name to '{origPresetName}.(isodate} draft' to indicate that they've deviated from params. consider adding Ctrl-Z to undo
 				- [ ] update finalColor according to position relative to origin, to help with camera perspective
 				  - make color indicate position according to origin
 				  - apply transforms for mass and acceleration
@@ -120,7 +123,45 @@
 			.builtin-tab-btn.active {
 				/* background-color: rgba(0, 170, 255, 0.2); */
 				background-color: rgba(200, 135, 120, 0.2);
-				// TODO: hover
+				/* TODO: hover */
+			}
+
+			.modal-overlay {
+				position: fixed;
+				top: 0;
+				left: 0;
+				width: 100%;
+				height: 100%;
+				background-color: rgba(0, 0, 0, 0.5);
+				z-index: 1000;
+				display: flex;
+				justify-content: center;
+				align-items: center;
+			}
+
+			.modal-content {
+				background-color: #222;
+				padding: 20px;
+				border-radius: 5px;
+				width: 80%;
+				max-width: 800px;
+				max-height: 80%;
+				overflow: auto;
+				box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+				display: flex;
+				flex-direction: column;
+				gap: 10px;
+			}
+
+			.modal-close {
+				align-self: flex-end;
+				cursor: pointer;
+				color: #aaa;
+				font-size: 20px;
+			}
+
+			.modal-close:hover {
+				color: #fff;
 			}
 
 
@@ -143,11 +184,18 @@
 			import { float, If, PI, color, cos, instanceIndex, Loop, mix, mod, sin, instancedArray, Fn, uint, uniform, uniformArray, hash, vec3, vec4 } from 'three/tsl';
 
 			import { Inspector } from 'three/addons/inspector/Inspector.js';
+			import { ValueJSONTextarea } from 'three/addons/inspector/ui/Values.js';
 
 			import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 			import { TransformControls } from 'three/addons/controls/TransformControls.js';
 
-			let camera, scene, renderer, controls, updateCompute;
+			let camera, scene, renderer, controls, updateCompute, configuration;
+			let journalStartTime = 0;
+			let isPlaying = false;
+			let playbackStartTimestamp = 0;
+			let playbackStartTimeOffset = 0;
+			let timeSlider;
+			let lastGuiUpdate = 0;
 
 			init();
 
@@ -174,7 +222,7 @@
 				renderer = new THREE.WebGPURenderer( { antialias: true } );
 				renderer.setPixelRatio( window.devicePixelRatio );
 				renderer.setSize( window.innerWidth, window.innerHeight );
-				renderer.setAnimationLoop( animate );
+				// renderer.setAnimationLoop( animate );
 				renderer.setClearColor( '#000000' );
 				renderer.inspector = new Inspector();
 				document.body.appendChild( renderer.domElement );
@@ -186,21 +234,60 @@
 				controls.minDistance = 0.1;
 				controls.maxDistance = 50;
 
+				controls.addEventListener( 'change', () => {
+
+					if ( configuration ) {
+
+						configuration.cameraPosX = camera.position.x;
+						configuration.cameraPosY = camera.position.y;
+						configuration.cameraPosZ = camera.position.z;
+						configuration.cameraTargetX = controls.target.x;
+						configuration.cameraTargetY = controls.target.y;
+						configuration.cameraTargetZ = controls.target.z;
+						configuration.cameraZoom = camera.zoom;
+						configuration.cameraFov = camera.fov;
+						configuration.cameraNear = camera.near;
+						configuration.cameraFar = camera.far;
+
+					}
+
+					recordChange( 'sys:camera', {
+						position: camera.position.toArray(),
+						target: controls.target.toArray(),
+						zoom: camera.zoom,
+						fov: camera.fov,
+						near: camera.near,
+						far: camera.far
+					} );
+
+				} );
+
 				window.addEventListener( 'resize', onWindowResize );
 
 				// attractors
 
-				const attractorsPositions = uniformArray( [
+				const MAX_ATTRACTORS = 20;
+				const initialAttractorsPositions = [
 					new THREE.Vector3( - 1, 0, 0 ),
 					new THREE.Vector3( 1, 0, - 0.5 ),
 					new THREE.Vector3( 0, 0.5, 1 )
-				] );
-				const attractorsRotationAxes = uniformArray( [
+				];
+				const initialAttractorsRotationAxes = [
 					new THREE.Vector3( 0, 1, 0 ),
 					new THREE.Vector3( 0, 1, 0 ),
 					new THREE.Vector3( 1, 0, - 0.5 ).normalize()
-				] );
-				const attractorsLength = uniform( attractorsPositions.array.length, 'uint' );
+				];
+
+				for ( let i = initialAttractorsPositions.length; i < MAX_ATTRACTORS; i ++ ) {
+
+					initialAttractorsPositions.push( new THREE.Vector3( 0, 0, 0 ) );
+					initialAttractorsRotationAxes.push( new THREE.Vector3( 0, 1, 0 ) );
+
+				}
+
+				const attractorsPositions = uniformArray( initialAttractorsPositions );
+				const attractorsRotationAxes = uniformArray( initialAttractorsRotationAxes );
+				const attractorsLength = uniform( 3, 'uint' );
 				const attractors = [];
 				const helpersRingGeometry = new THREE.RingGeometry( 1, 1.02, 32, 1, 0, Math.PI * 1.5 );
 				const helpersArrowGeometry = new THREE.ConeGeometry( 0.1, 0.4, 12, 1, false );
@@ -211,7 +298,7 @@
 					//wireframe: true,
 				});
 
-				for ( let i = 0; i < attractorsPositions.array.length; i ++ ) {
+				function createAttractor( i ) {
 
 					const attractor = {};
 
@@ -241,6 +328,22 @@
 					attractor.controls.size = 0.5;
 					attractor.controls.attach( attractor.reference );
 					attractor.controls.visible = true;
+
+					if ( configuration && configuration.controlsMode ) {
+
+						if ( configuration.controlsMode === 'none' ) {
+
+							attractor.controls.visible = false;
+							attractor.controls.getHelper().visible = false;
+
+						} else {
+
+							attractor.controls.mode = configuration.controlsMode;
+
+						}
+
+					}
+
 					attractor.controls.enabled = attractor.controls.visible;
 					// attractor.controls.setColors( 0xeb5555, 0x55eb55, 0x5555eb );
 					// attractor.controls.setColors( 0xeb0000, 0x00eb00, 0x0000eb );
@@ -248,7 +351,12 @@
 					// attractor.controls.setColors( 0x303030, 0x303030, 0x303030 );
 					// attractor.controls.setColors( 0x999999, 0x999999, 0x999999 );
 					// attractor.controls.setColors( 0x000000, 0x000000, 0x000000 );
-					attractor.controls.setColors( 0x222222, 0x222222, 0x222222 );
+					// attractor.controls.setColors( 0x222222, 0x222222, 0x222222 );
+					
+					const cx = new THREE.Color( configuration ? configuration.controlsColorX : '#222222' ).getHex( THREE.SRGBColorSpace );
+					const cy = new THREE.Color( configuration ? configuration.controlsColorY : '#222222' ).getHex( THREE.SRGBColorSpace );
+					const cz = new THREE.Color( configuration ? configuration.controlsColorZ : '#222222' ).getHex( THREE.SRGBColorSpace );
+					attractor.controls.setColors( cx, cy, cz );
 				
 					scene.add( attractor.controls.getHelper() );
 
@@ -268,17 +376,24 @@
 					attractor.controls.addEventListener( 'change', () => {
 
 						attractor.position.copy( attractor.reference.position );
-						logObject('attractor.position', attractor.position);
-						logObject('attractor.orientation', attractor.orientation);
+						// logObject('attractor.position', attractor.position);
+						// logObject('attractor.orientation', attractor.orientation);
 
 						attractor.orientation.copy( new THREE.Vector3( 0, 1, 0 ).applyQuaternion( attractor.reference.quaternion ) );
-						logObject('attractor.position', attractor.position);
-						logObject('attractor.orientation', attractor.orientation);
+						// logObject('attractor.position', attractor.position);
+						// logObject('attractor.orientation', attractor.orientation);
 					} );
 
 					attractors.push( attractor );
 
 				}
+
+				for ( let i = 0; i < attractorsLength.value; i ++ ) {
+
+					createAttractor( i );
+
+				}
+				let initialAttractorCount = attractors.length;
 
 				// particles
 
@@ -432,16 +547,917 @@
 
 				const gui = renderer.inspector.createParameters( 'Parameters' );
 
-				gui.add( { attractorMassExponent: attractorMass.value.toString().length - 1 }, 'attractorMassExponent', 1, 10, 1 ).onChange( value => attractorMass.value = Number( `1e${value}` ) );
-				gui.add( { particleGlobalMassExponent: particleGlobalMass.value.toString().length - 1 }, 'particleGlobalMassExponent', 1, 10, 1 ).onChange( value => particleGlobalMass.value = Number( `1e${value}` ) );
-				gui.add( maxSpeed, 'value', 0, 10, 0.01 ).name( 'maxSpeed' );
-				gui.add( velocityDamping, 'value', 0, 0.1, 0.001 ).name( 'velocityDamping' );
-				gui.add( spinningStrength, 'value', 0, 10, 0.01 ).name( 'spinningStrength' );
-				gui.add( scale, 'value', 0, 0.1, 0.001 ).name( 'scale' );
-				gui.add( boundHalfExtent, 'value', 0, 20, 0.01 ).name( 'boundHalfExtent' );
-				gui.addColor( { color: colorA.value.getHexString( THREE.SRGBColorSpace ) }, 'color' ).name( 'colorA' ).onChange( value => colorA.value.set( value ) );
-				gui.addColor( { color: colorB.value.getHexString( THREE.SRGBColorSpace ) }, 'color' ).name( 'colorB' ).onChange( value => colorB.value.set( value ) );
-				gui.add( { controlsMode: attractors[ 0 ].controls.mode }, 'controlsMode', [ 'translate', 'rotate', 'none' ] ).onChange( value => {
+				const controllerMap = {};
+				const initialState = {};
+
+				function track( controller, path ) {
+
+					controllerMap[ path ] = controller;
+					initialState[ path ] = controller.getValue();
+					controller.addEventListener( 'change', ( { value } ) => {
+
+						recordChange( path, value );
+
+					} );
+
+					controller.domElement.addEventListener( 'keydown', ( e ) => {
+
+						if ( e.key === '\\' && e.target.tagName !== 'TEXTAREA' ) {
+
+							e.preventDefault();
+							e.stopPropagation();
+
+							let baseName = currentPresetName;
+							if ( baseName.includes( ' draft' ) ) {
+
+								const candidates = Object.keys( presets ).filter( k =>
+									baseName.startsWith( k + '.' ) && ! k.includes( ' draft' )
+								);
+								candidates.sort( ( a, b ) => b.length - a.length );
+								if ( candidates.length > 0 ) {
+
+									baseName = candidates[ 0 ];
+
+								}
+
+							}
+
+							const preset = presets[ baseName ];
+							if ( ! preset ) return;
+
+							let newValue;
+							const attractorMatch = path.match( /^attractors\[(\d+)\]\.(position|rotation)\.([xyz])$/ );
+
+							if ( attractorMatch ) {
+
+								const index = parseInt( attractorMatch[ 1 ] );
+								const prop = attractorMatch[ 2 ];
+								const axis = attractorMatch[ 3 ];
+								const axisIndex = axis === 'x' ? 0 : axis === 'y' ? 1 : 2;
+
+								if ( preset.attractors && preset.attractors[ index ] ) {
+
+									newValue = preset.attractors[ index ][ prop ][ axisIndex ];
+
+								}
+
+							} else {
+
+								newValue = preset[ path ];
+
+							}
+
+							if ( newValue !== undefined ) {
+
+								controller.setValue( newValue );
+
+							}
+
+						}
+
+					} );
+
+					return controller;
+
+				}
+
+				function getJournalDuration() {
+
+					if ( configuration.journal.length === 0 ) return 0;
+					return configuration.journal[ configuration.journal.length - 1 ].time;
+
+				}
+
+				function recordChange( path, value ) {
+
+					if ( ! configuration.recording || isPlaying || isApplyingConfiguration ) return;
+
+					const now = Date.now();
+					if ( configuration.journal.length === 0 ) {
+
+						journalStartTime = now;
+
+					}
+
+					const time = now - journalStartTime;
+					configuration.journal.push( {
+						time: time,
+						path: path,
+						value: value
+					} );
+
+					if ( timeSlider ) {
+
+						const duration = time;
+						if ( duration > parseFloat( timeSlider.slider.max ) ) {
+
+							timeSlider.slider.max = duration;
+							timeSlider.numberInput.max = duration;
+
+						}
+
+						if ( now - lastGuiUpdate > 100 ) {
+
+							isRecordingUpdate = true;
+							timeSlider.setValue( duration );
+							isRecordingUpdate = false;
+							configuration.playbackTime = duration;
+							updateTicks();
+							lastGuiUpdate = now;
+
+						}
+
+					}
+
+				}
+
+				let lastReplayTime = 0;
+
+				function applyStateAt( time ) {
+
+					isApplyingConfiguration = true;
+
+					// Restore structure
+					while ( attractors.length > initialAttractorCount ) {
+
+						configuration.removeAttractor();
+
+					}
+
+					while ( attractors.length < initialAttractorCount ) {
+
+						configuration.addAttractor();
+
+					}
+
+					for ( const path in initialState ) {
+
+						if ( controllerMap[ path ] ) controllerMap[ path ].setValue( initialState[ path ] );
+
+					}
+
+					let lastCameraState = null;
+
+					for ( const event of configuration.journal ) {
+
+						if ( event.time <= time ) {
+
+							if ( event.path === 'sys:addAttractor' ) {
+
+								configuration.addAttractor( event.value );
+
+							} else if ( event.path === 'sys:removeAttractor' ) {
+
+								configuration.removeAttractor();
+
+							} else if ( event.path === 'sys:camera' ) {
+
+								lastCameraState = event.value;
+
+							} else if ( controllerMap[ event.path ] ) {
+
+								controllerMap[ event.path ].setValue( event.value );
+
+							}
+
+						} else {
+
+							break;
+
+						}
+
+					}
+
+					if ( lastCameraState && configuration.replayCameraTrack !== 'false' ) {
+
+						const targetPos = new THREE.Vector3().fromArray( lastCameraState.position );
+						const targetTarget = new THREE.Vector3().fromArray( lastCameraState.target );
+						const targetZoom = lastCameraState.zoom !== undefined ? lastCameraState.zoom : camera.zoom;
+						const targetFov = lastCameraState.fov !== undefined ? lastCameraState.fov : camera.fov;
+						const targetNear = lastCameraState.near !== undefined ? lastCameraState.near : camera.near;
+						const targetFar = lastCameraState.far !== undefined ? lastCameraState.far : camera.far;
+
+						if ( configuration.replayCameraTrack === 'exact' ) {
+
+							camera.position.copy( targetPos );
+							controls.target.copy( targetTarget );
+							camera.zoom = targetZoom;
+							camera.fov = targetFov;
+							camera.near = targetNear;
+							camera.far = targetFar;
+							camera.updateProjectionMatrix();
+							controls.update();
+
+						} else if ( configuration.replayCameraTrack === 'easing' ) {
+
+							const factor = configuration.replayCameraEasing;
+							camera.position.lerp( targetPos, factor );
+							controls.target.lerp( targetTarget, factor );
+							camera.zoom = THREE.MathUtils.lerp( camera.zoom, targetZoom, factor );
+							camera.fov = THREE.MathUtils.lerp( camera.fov, targetFov, factor );
+							camera.near = THREE.MathUtils.lerp( camera.near, targetNear, factor );
+							camera.far = THREE.MathUtils.lerp( camera.far, targetFar, factor );
+							camera.updateProjectionMatrix();
+							controls.update();
+
+						}
+
+					}
+
+					lastReplayTime = time;
+
+					isApplyingConfiguration = false;
+
+				}
+
+				function togglePlay() {
+
+					isPlaying = ! isPlaying;
+					if ( isPlaying ) {
+
+						playbackStartTimestamp = performance.now();
+						playbackStartTimeOffset = configuration.playbackTime;
+
+						if ( playbackStartTimeOffset >= getJournalDuration() ) {
+
+							playbackStartTimeOffset = 0;
+
+						}
+
+						playLoop();
+
+					}
+
+				}
+
+				function stopPlayback() {
+
+					isPlaying = false;
+					configuration.playbackTime = 0;
+					if ( timeSlider ) timeSlider.setValue( 0 );
+					applyStateAt( 0 );
+
+				}
+
+				function playLoop() {
+
+					if ( ! isPlaying ) return;
+
+					const now = performance.now();
+					const elapsed = ( now - playbackStartTimestamp ) * configuration.playbackSpeed;
+					let time = playbackStartTimeOffset + elapsed;
+
+					const duration = getJournalDuration();
+					if ( time >= duration ) {
+
+						time = duration;
+						isPlaying = false;
+
+					}
+
+					configuration.playbackTime = time;
+					if ( timeSlider ) timeSlider.setValue( time );
+
+					applyStateAt( time );
+
+					if ( isPlaying ) requestAnimationFrame( playLoop );
+
+				}
+
+				function deleteAllLocalPresets() {
+
+					if ( confirm( 'Are you sure you want to delete all local presets?' ) ) {
+
+						localStorage.removeItem( 'attractorPresets' );
+						for ( const key of Object.keys( presets ) ) {
+
+							if ( key !== 'Default' && key !== 'Chaos' && key !== 'Galaxy' && key !== 'Ring2' && key !== 'Ring3' ) {
+
+								delete presets[ key ];
+
+							}
+
+						}
+						presetController.setOptions( Object.keys( presets ) );
+						presetController.setValue( 'Default' );
+
+					}
+
+				}
+
+				configuration = {
+					attractorMassExponent: attractorMass.value.toString().length - 1,
+					particleGlobalMassExponent: particleGlobalMass.value.toString().length - 1,
+					maxSpeed: maxSpeed.value,
+					velocityDamping: velocityDamping.value,
+					spinningStrength: spinningStrength.value,
+					scale: scale.value,
+					boundHalfExtent: boundHalfExtent.value,
+					colorA: '#' + colorA.value.getHexString( THREE.SRGBColorSpace ),
+					colorB: '#' + colorB.value.getHexString( THREE.SRGBColorSpace ),
+					controlsColorX: '#222222',
+					controlsColorY: '#222222',
+					controlsColorZ: '#222222',
+					controlsMode: attractors[ 0 ].controls.mode,
+					helperVisible: attractors[ 0 ].helper.visible,
+					newAttractorPlacement: 'origin',
+					newAttractorRandomDist: 3.14,
+					replayCameraTrack: 'easing',
+					replayCameraEasing: 0.1,
+					replayCameraOrbitSpeed: 0.1,
+					replayCameraOrbitX: 1.0,
+					replayCameraOrbitY: 0.0,
+					replayCameraOrbitZ: 0.0,
+					cameraOrbitOn: true,
+					cameraPosX: camera.position.x,
+					cameraPosY: camera.position.y,
+					cameraPosZ: camera.position.z,
+					cameraTargetX: controls.target.x,
+					cameraTargetY: controls.target.y,
+					cameraTargetZ: controls.target.z,
+					cameraZoom: camera.zoom,
+					cameraFov: camera.fov,
+					cameraNear: camera.near,
+					cameraFar: camera.far,
+					export: '',
+					recording: true,
+					showTicks: false,
+					playbackSpeed: 1.0,
+					playbackTime: 0,
+					journal: [],
+					togglePlay: togglePlay,
+					stop: stopPlayback,
+					deleteAllLocalPresets: deleteAllLocalPresets,
+					load: function () {
+
+						try {
+
+							const data = JSON.parse( this.export );
+							applyConfiguration( data );
+
+						} catch ( e ) {
+
+							console.error( e );
+							alert( 'Invalid JSON' );
+
+						}
+
+					},
+					reset
+				};
+
+				window.attractorConfiguration = configuration;
+
+				let currentPresetName = 'Default';
+				let isApplyingConfiguration = false;
+				let isRecordingUpdate = false;
+				let presetController;
+				const history = [];
+				let historyIndex = -1;
+
+				function addToHistory() {
+
+					const state = configuration.export;
+					if ( historyIndex >= 0 && history[ historyIndex ] === state ) return;
+
+					if ( historyIndex < history.length - 1 ) {
+
+						history.length = historyIndex + 1;
+
+					}
+
+					history.push( state );
+					historyIndex ++;
+
+				}
+
+				let historyTimeout;
+				function scheduleHistoryUpdate() {
+
+					clearTimeout( historyTimeout );
+					historyTimeout = setTimeout( addToHistory, 500 );
+
+				}
+
+				function undo() {
+
+					if ( historyIndex > 0 ) {
+
+						historyIndex --;
+						const state = history[ historyIndex ];
+						isApplyingConfiguration = true;
+						applyConfiguration( JSON.parse( state ) );
+						isApplyingConfiguration = false;
+
+					}
+
+				}
+
+				window.addEventListener( 'keydown', ( e ) => {
+
+					if ( ( e.ctrlKey || e.metaKey ) && e.key === 'z' ) {
+
+						e.preventDefault();
+						undo();
+
+					}
+
+				} );
+
+				function updateExport() {
+
+					const exportData = { ...configuration };
+					delete exportData.export;
+					delete exportData.load;
+					delete exportData.reset;
+					delete exportData.save;
+					delete exportData.exportAllPresets;
+					delete exportData.exportSavedPresets;
+					delete exportData.exportCurrentParams;
+					delete exportData.recording;
+					delete exportData.showTicks;
+					delete exportData.playbackSpeed;
+					delete exportData.playbackTime;
+					delete exportData.togglePlay;
+					delete exportData.stop;
+					delete exportData.deleteAllLocalPresets;
+					delete exportData.addAttractor;
+					delete exportData.removeAttractor;
+
+					exportData.attractors = attractors.map( a => ( {
+						position: a.reference.position.toArray(),
+						rotation: a.reference.rotation.toArray().slice( 0, 3 )
+					} ) );
+
+					configuration.export = JSON.stringify( exportData, null, '\t' );
+
+					if ( ! isApplyingConfiguration && presetController ) {
+
+						if ( ! currentPresetName.includes( 'draft' ) ) {
+
+							const draftName = `${currentPresetName}.${new Date().toISOString()} draft`;
+							presets[ draftName ] = JSON.parse( configuration.export );
+							currentPresetName = draftName;
+
+							presetController.setOptions( Object.keys( presets ) );
+							presetController.setValue( currentPresetName );
+
+						} else {
+
+							presets[ currentPresetName ] = JSON.parse( configuration.export );
+
+						}
+
+						scheduleHistoryUpdate();
+
+					}
+
+				}
+
+				function updateAttractor( index ) {
+
+					const attractor = attractors[ index ];
+					if ( ! attractor ) return;
+
+					attractor.position.copy( attractor.reference.position );
+					attractor.orientation.copy( new THREE.Vector3( 0, 1, 0 ).applyQuaternion( attractor.reference.quaternion ) );
+					updateExport();
+
+				}
+
+				function applyConfiguration( data ) {
+
+					if ( data.attractorMassExponent !== undefined ) {
+
+						configuration.attractorMassExponent = data.attractorMassExponent;
+						attractorMass.value = Number( `1e${data.attractorMassExponent}` );
+
+					}
+
+					if ( data.particleGlobalMassExponent !== undefined ) {
+
+						configuration.particleGlobalMassExponent = data.particleGlobalMassExponent;
+						particleGlobalMass.value = Number( `1e${data.particleGlobalMassExponent}` );
+
+					}
+
+					if ( data.maxSpeed !== undefined ) {
+
+						configuration.maxSpeed = data.maxSpeed;
+						maxSpeed.value = data.maxSpeed;
+
+					}
+
+					if ( data.velocityDamping !== undefined ) {
+
+						configuration.velocityDamping = data.velocityDamping;
+						velocityDamping.value = data.velocityDamping;
+
+					}
+
+					if ( data.spinningStrength !== undefined ) {
+
+						configuration.spinningStrength = data.spinningStrength;
+						spinningStrength.value = data.spinningStrength;
+
+					}
+
+					if ( data.scale !== undefined ) {
+
+						configuration.scale = data.scale;
+						scale.value = data.scale;
+
+					}
+
+					if ( data.boundHalfExtent !== undefined ) {
+
+						configuration.boundHalfExtent = data.boundHalfExtent;
+						boundHalfExtent.value = data.boundHalfExtent;
+
+					}
+
+					if ( data.colorA !== undefined ) {
+
+						configuration.colorA = data.colorA;
+						colorA.value.set( data.colorA );
+
+					}
+
+					if ( data.colorB !== undefined ) {
+
+						configuration.colorB = data.colorB;
+						colorB.value.set( data.colorB );
+
+					}
+
+					if ( data.controlsColorX !== undefined ) configuration.controlsColorX = data.controlsColorX;
+					if ( data.controlsColorY !== undefined ) configuration.controlsColorY = data.controlsColorY;
+					if ( data.controlsColorZ !== undefined ) configuration.controlsColorZ = data.controlsColorZ;
+					updateControlsColors();
+
+					if ( data.controlsMode !== undefined ) {
+
+						configuration.controlsMode = data.controlsMode;
+						for ( const attractor of attractors ) {
+
+							if ( data.controlsMode === 'none' ) {
+
+								attractor.controls.visible = false;
+								attractor.controls.enabled = false;
+
+							} else {
+
+								attractor.controls.visible = true;
+								attractor.controls.enabled = true;
+								attractor.controls.mode = data.controlsMode;
+
+							}
+
+						}
+
+					}
+
+					if ( data.helperVisible !== undefined ) {
+
+						configuration.helperVisible = data.helperVisible;
+						for ( const attractor of attractors ) {
+
+							attractor.helper.visible = data.helperVisible;
+
+						}
+
+					}
+
+					if ( data.attractors ) {
+
+						// Resize attractors list to match data
+						while ( attractors.length < data.attractors.length ) {
+
+							configuration.addAttractor();
+
+						}
+						while ( attractors.length > data.attractors.length ) {
+
+							configuration.removeAttractor();
+
+						}
+
+						data.attractors.forEach( ( aData, i ) => {
+
+							if ( attractors[ i ] ) {
+
+								attractors[ i ].reference.position.fromArray( aData.position );
+								attractors[ i ].reference.rotation.fromArray( aData.rotation );
+								updateAttractor( i );
+
+							}
+
+						} );
+
+					}
+
+					updateExport();
+
+				}
+
+				updateExport();
+
+				const presets = {
+					'Default': JSON.parse( configuration.export ),
+					'Chaos': { ...JSON.parse( configuration.export ), spinningStrength: 8.0, velocityDamping: 0.02 },
+					'Galaxy': { ...JSON.parse( configuration.export ), spinningStrength: 2.0, maxSpeed: 5.0, scale: 0.005 },
+					'Ring2': {
+						...JSON.parse( configuration.export ), 
+						"attractorMassExponent": 7,
+						"particleGlobalMassExponent": 4,
+						"maxSpeed": 6.85,
+						"velocityDamping": 0.1,
+						"spinningStrength": 3.51,
+						"scale": 0.007,
+						"boundHalfExtent": 8,
+						// "colorA": 480674,
+						// "colorB": 297263,
+						"controlsMode": "rotate",
+						"helperVisible": true,
+						"attractors": [
+							{
+								"position": [
+									-1,
+									0.8815631664306667,
+									0
+								],
+								"rotation": [
+									0,
+									0,
+									0
+								]
+							},
+							{
+								"position": [
+									1,
+									0,
+									-0.5
+								],
+								"rotation": [
+									0,
+									0,
+									0
+								]
+							},
+							{
+								"position": [
+									0.6638722693504426,
+									0.5,
+									1
+								],
+								"rotation": [
+									-0.5097396788315067,
+									0.41151684606748784,
+									-1.3508083493994367
+								]
+							}
+						]
+					},
+					'Ring3': {
+						"attractorMassExponent": 7,
+						"particleGlobalMassExponent": 4,
+						"maxSpeed": 6.85,
+						"velocityDamping": 0.1,
+						"spinningStrength": 3.51,
+						"scale": 0.007,
+						"boundHalfExtent": 8,
+						// "colorA": 480674,
+						// "colorB": 297263,
+						"controlsMode": "rotate",
+						"helperVisible": true,
+						"attractors": [
+							{
+								"position": [
+									-1,
+									2,
+									0
+								],
+								"rotation": [
+									0,
+									0,
+									0
+								]
+							},
+							{
+								"position": [
+									1,
+									0,
+									-0.5
+								],
+								"rotation": [
+									0,
+									0,
+									0
+								]
+							},
+							{
+								"position": [
+									0,
+									0.5,
+									1
+								],
+								"rotation": [
+									0.2,
+									0.41151684606748784,
+									-1.3508083493994367
+								]
+							}
+						]
+					},
+					'Solar System': {
+						...JSON.parse( configuration.export ),
+						"boundHalfExtent": 50,
+						"attractors": [
+							{ "position": [0, 0, 0], "rotation": [0, 0, 0] }, // Sun
+							{ "position": [-0.364457, -0.221686, -0.080653], "rotation": [0, 0, 0] }, // Mercury
+							{ "position": [-0.111425, -0.657243, -0.288691], "rotation": [0, 0, 0] }, // Venus
+							{ "position": [-0.000267, 0.902619, 0.391272], "rotation": [0, 0, 0] }, // Earth
+							{ "position": [0.000708, 0.900418, 0.390124], "rotation": [0, 0, 0] }, // Moon
+							{ "position": [0.197800, -1.293942, -0.598836], "rotation": [0, 0, 0] }, // Mars
+							{ "position": [-1.621310, 4.534772, 1.983192], "rotation": [0, 0, 0] }, // Jupiter
+							{ "position": [9.511834, 0.337141, -0.270341], "rotation": [0, 0, 0] }, // Saturn
+							{ "position": [9.914935, 15.423234, 6.614591], "rotation": [0, 0, 0] }, // Uranus
+							{ "position": [29.872943, 0.724464, -0.447144], "rotation": [0, 0, 0] }, // Neptune
+							{ "position": [19.200213, -26.268900, -13.981278], "rotation": [0, 0, 0] } // Pluto
+						]
+					}
+				};
+
+				try {
+
+					const savedPresets = JSON.parse( localStorage.getItem( 'attractorPresets' ) || '{}' );
+					Object.assign( presets, savedPresets );
+
+				} catch ( e ) {
+
+					console.error( 'Failed to load presets from localStorage', e );
+
+				}
+
+				presetController = gui.add( { preset: 'Default' }, 'preset', Object.keys( presets ) ).onChange( value => {
+
+					currentPresetName = value;
+					isApplyingConfiguration = true;
+					applyConfiguration( presets[ value ] );
+					isApplyingConfiguration = false;
+					addToHistory();
+
+				} );
+
+				configuration.save = () => {
+
+					const name = new Date().toISOString();
+					const preset = JSON.parse( configuration.export );
+					presets[ name ] = preset;
+
+					try {
+
+						const savedPresets = JSON.parse( localStorage.getItem( 'attractorPresets' ) || '{}' );
+						savedPresets[ name ] = preset;
+						localStorage.setItem( 'attractorPresets', JSON.stringify( savedPresets ) );
+
+					} catch ( e ) {
+
+						console.error( 'Failed to save preset to localStorage', e );
+
+					}
+
+					presetController.setOptions( Object.keys( presets ) );
+					presetController.setValue( name );
+					currentPresetName = name;
+
+				};
+
+				track( gui.add( configuration, 'attractorMassExponent', 1, 10, 1 ), 'attractorMassExponent' ).onChange( value => {
+
+					attractorMass.value = Number( `1e${value}` );
+					updateExport();
+
+				} ).listen();
+
+				track( gui.add( configuration, 'particleGlobalMassExponent', 1, 10, 1 ), 'particleGlobalMassExponent' ).onChange( value => {
+
+					particleGlobalMass.value = Number( `1e${value}` );
+					updateExport();
+
+				} ).listen();
+
+				track( gui.add( configuration, 'maxSpeed', 0, 10, 0.01 ).name( 'maxSpeed' ), 'maxSpeed' ).onChange( value => {
+
+					maxSpeed.value = value;
+					updateExport();
+
+				} ).listen();
+
+				track( gui.add( configuration, 'velocityDamping', 0, 0.1, 0.001 ).name( 'velocityDamping' ), 'velocityDamping' ).onChange( value => {
+
+					velocityDamping.value = value;
+					updateExport();
+
+				} ).listen();
+
+				track( gui.add( configuration, 'spinningStrength', 0, 10, 0.01 ).name( 'spinningStrength' ), 'spinningStrength' ).onChange( value => {
+
+					spinningStrength.value = value;
+					updateExport();
+
+				} ).listen();
+
+				track( gui.add( configuration, 'scale', 0, 0.1, 0.001 ).name( 'scale' ), 'scale' ).onChange( value => {
+
+					scale.value = value;
+					updateExport();
+
+				} ).listen();
+
+				track( gui.add( configuration, 'boundHalfExtent', 0, 20, 0.01 ).name( 'boundHalfExtent' ), 'boundHalfExtent' ).onChange( value => {
+
+					boundHalfExtent.value = value;
+					updateExport();
+
+				} ).listen();
+
+
+				track( gui.add( configuration, 'controlsMode', [ 'translate', 'rotate', 'none' ] ), 'controlsMode' ).onChange( updateControlsMode ).listen();
+
+				window.addEventListener( 'dblclick', ( event ) => {
+
+					if ( configuration.controlsMode === 'none' ) return;
+
+					const mouse = new THREE.Vector2();
+					mouse.x = ( event.clientX / window.innerWidth ) * 2 - 1;
+					mouse.y = - ( event.clientY / window.innerHeight ) * 2 + 1;
+
+					const raycaster = new THREE.Raycaster();
+					raycaster.setFromCamera( mouse, camera );
+
+					const helpers = attractors.map( a => a.controls.getHelper() );
+					const intersects = raycaster.intersectObjects( helpers, true );
+
+					if ( intersects.length > 0 ) {
+
+						configuration.controlsMode = configuration.controlsMode === 'translate' ? 'rotate' : 'translate';
+						updateControlsMode();
+
+					}
+
+				} );
+
+				track( gui.add( configuration, 'helperVisible' ), 'helperVisible' ).onChange( value => {
+
+					for ( const attractor of attractors ) {
+
+						attractor.helper.visible = value;
+
+					}
+					updateExport();
+
+				} ).listen();
+
+				gui.add( configuration, 'reset' );
+
+				const colorsFolder = gui.addFolder( 'Colors' );
+
+				track( colorsFolder.addColor( configuration, 'colorA' ).name( 'colorA' ), 'colorA' ).onChange( value => {
+
+					colorA.value.set( value );
+					updateExport();
+
+				} ).listen();
+
+				track( colorsFolder.addColor( configuration, 'colorB' ).name( 'colorB' ), 'colorB' ).onChange( value => {
+
+					colorB.value.set( value );
+					updateExport();
+
+				} ).listen();
+
+				function updateControlsColors() {
+
+					const cx = new THREE.Color( configuration.controlsColorX ).getHex( THREE.SRGBColorSpace );
+					const cy = new THREE.Color( configuration.controlsColorY ).getHex( THREE.SRGBColorSpace );
+					const cz = new THREE.Color( configuration.controlsColorZ ).getHex( THREE.SRGBColorSpace );
+
+					for ( const attractor of attractors ) {
+
+						attractor.controls.setColors( cx, cy, cz );
+
+					}
+
+				}
+
+				track( colorsFolder.addColor( configuration, 'controlsColorX' ).name( 'Controls X' ), 'controlsColorX' ).onChange( updateControlsColors ).listen();
+				track( colorsFolder.addColor( configuration, 'controlsColorY' ).name( 'Controls Y' ), 'controlsColorY' ).onChange( updateControlsColors ).listen();
+				track( colorsFolder.addColor( configuration, 'controlsColorZ' ).name( 'Controls Z' ), 'controlsColorZ' ).onChange( updateControlsColors ).listen();
+
+				function updateControlsMode() {
+
+					const value = configuration.controlsMode;
 
 					for ( const attractor of attractors ) {
 
@@ -449,30 +1465,356 @@
 
 							attractor.controls.visible = false;
 							attractor.controls.enabled = false;
+							attractor.controls.getHelper().visible = false;
 
 						} else {
 
 							attractor.controls.visible = true;
 							attractor.controls.enabled = true;
+							attractor.controls.getHelper().visible = true;
 							attractor.controls.mode = value;
 
 						}
 
 					}
+					updateExport();
+
+				}
+
+
+				function addAttractorGUI( i ) {
+
+					const attractor = attractors[ i ];
+					const folder = attractorsFolder.addFolder( `Attractor ${i}` );
+					attractor.folder = folder;
+
+					track( folder.add( attractor.reference.position, 'x' ).name( 'Pos X' ), `attractors[${i}].position.x` ).onChange( () => updateAttractor( i ) ).listen();
+					track( folder.add( attractor.reference.position, 'y' ).name( 'Pos Y' ), `attractors[${i}].position.y` ).onChange( () => updateAttractor( i ) ).listen();
+					track( folder.add( attractor.reference.position, 'z' ).name( 'Pos Z' ), `attractors[${i}].position.z` ).onChange( () => updateAttractor( i ) ).listen();
+					track( folder.add( attractor.reference.rotation, 'x' ).name( 'Rot X' ), `attractors[${i}].rotation.x` ).onChange( () => updateAttractor( i ) ).listen();
+					track( folder.add( attractor.reference.rotation, 'y' ).name( 'Rot Y' ), `attractors[${i}].rotation.y` ).onChange( () => updateAttractor( i ) ).listen();
+					track( folder.add( attractor.reference.rotation, 'z' ).name( 'Rot Z' ), `attractors[${i}].rotation.z` ).onChange( () => updateAttractor( i ) ).listen();
+
+					attractor.controls.addEventListener( 'change', () => updateExport() );
+
+				}
+
+				const attractorsFolder = gui.addFolder( 'Attractors' );
+				attractorsFolder.add( configuration, 'newAttractorPlacement', [ 'origin', 'previous', 'centroid', 'random', 'random within distance' ] ).name( 'Placement' );
+				attractorsFolder.add( configuration, 'newAttractorRandomDist', 0, 20 ).name( 'Random Dist' );
+
+				configuration.addAttractor = ( initialState = null ) => {
+
+					if ( attractors.length >= MAX_ATTRACTORS ) {
+
+						alert( 'Max attractors reached' );
+						return;
+
+					}
+
+					// Validate initialState to ensure it's not a UI event or controller
+					if ( initialState && ( ! initialState.position || ! initialState.rotation ) ) {
+
+						initialState = null;
+
+					}
+
+					const i = attractors.length;
+					attractorsLength.value = i + 1;
+					createAttractor( i );
+
+					if ( initialState ) {
+
+						attractors[ i ].reference.position.fromArray( initialState.position );
+						attractors[ i ].reference.rotation.fromArray( initialState.rotation );
+
+					} else {
+
+						const placement = configuration.newAttractorPlacement;
+						const position = new THREE.Vector3();
+						const rotation = new THREE.Euler();
+
+						if ( placement === 'previous' ) {
+
+							if ( i > 0 ) {
+
+								position.copy( attractors[ i - 1 ].reference.position );
+								rotation.copy( attractors[ i - 1 ].reference.rotation );
+
+							}
+
+						} else if ( placement === 'centroid' || placement === 'random within distance' ) {
+
+							if ( i > 0 ) {
+
+								for ( let j = 0; j < i; j ++ ) {
+
+									position.add( attractors[ j ].reference.position );
+
+								}
+								position.divideScalar( i );
+
+							}
+
+							if ( placement === 'random within distance' ) {
+
+								const dist = configuration.newAttractorRandomDist;
+								const offset = new THREE.Vector3(
+									Math.random() - 0.5,
+									Math.random() - 0.5,
+									Math.random() - 0.5
+								).normalize().multiplyScalar( Math.cbrt( Math.random() ) * dist );
+								position.add( offset );
+
+							}
+
+						} else if ( placement === 'random' ) {
+
+							const range = configuration.boundHalfExtent;
+							position.set(
+								( Math.random() - 0.5 ) * 2 * range,
+								( Math.random() - 0.5 ) * 2 * range,
+								( Math.random() - 0.5 ) * 2 * range
+							);
+
+						}
+
+						attractors[ i ].reference.position.copy( position );
+						attractors[ i ].reference.rotation.copy( rotation );
+
+					}
+					updateAttractor( i );
+
+					addAttractorGUI( i );
+					updateExport();
+
+					recordChange( 'sys:addAttractor', {
+						position: attractors[ i ].reference.position.toArray(),
+						rotation: attractors[ i ].reference.rotation.toArray().slice( 0, 3 )
+					} );
+
+				};
+
+				configuration.removeAttractor = () => {
+
+					if ( attractors.length <= 1 ) {
+
+						alert( 'Cannot remove last attractor' );
+						return;
+
+					}
+
+					const i = attractors.length - 1;
+					const attractor = attractors.pop();
+					scene.remove( attractor.reference );
+					scene.remove( attractor.controls.getHelper() );
+					attractor.controls.dispose();
+					attractor.helper.traverse( ( child ) => {
+
+						if ( child.geometry ) child.geometry.dispose();
+						if ( child.material ) child.material.dispose();
+
+					} );
+
+					if ( attractor.folder ) {
+
+						attractorsFolder.paramList.remove( attractor.folder.paramList );
+
+					}
+
+					const prefix = `attractors[${i}].`;
+					for ( const key in controllerMap ) {
+
+						if ( key.startsWith( prefix ) ) {
+
+							delete controllerMap[ key ];
+
+						}
+
+					}
+
+					attractorsLength.value = i;
+					updateExport();
+
+					recordChange( 'sys:removeAttractor', null );
+
+				};
+
+				attractorsFolder.add( configuration, 'addAttractor' ).name( '➕ Add Attractor' );
+				attractorsFolder.add( configuration, 'removeAttractor' ).name( '➖ Remove Attractor' );
+
+				attractors.forEach( ( attractor, i ) => {
+
+					addAttractorGUI( i );
 
 				} );
 
-				gui.add( { helperVisible: attractors[ 0 ].helper.visible }, 'helperVisible' ).onChange( value => {
+				function showModal( title, content ) {
 
-					for ( const attractor of attractors ) {
+					const overlay = document.createElement( 'div' );
+					overlay.className = 'modal-overlay';
+					overlay.style.zIndex = 9999
 
-						attractor.helper.visible = value;
+					const modal = document.createElement( 'div' );
+					modal.className = 'modal-content';
+
+					const header = document.createElement( 'div' );
+					header.style.display = 'flex';
+					header.style.justifyContent = 'space-between';
+					header.style.alignItems = 'center';
+
+					const titleEl = document.createElement( 'h3' );
+					titleEl.textContent = title;
+					titleEl.style.margin = '0';
+					titleEl.style.color = '#fff';
+
+					const close = document.createElement( 'div' );
+					close.className = 'modal-close';
+					close.textContent = '×';
+					close.onclick = () => document.body.removeChild( overlay );
+
+					header.appendChild( titleEl );
+					header.appendChild( close );
+					modal.appendChild( header );
+
+					const textarea = new ValueJSONTextarea( content );
+					modal.appendChild( textarea.domElement );
+
+					overlay.appendChild( modal );
+					document.body.appendChild( overlay );
+
+					overlay.onclick = ( e ) => {
+
+						if ( e.target === overlay ) document.body.removeChild( overlay );
+
+					};
+
+				}
+
+				configuration.exportAllPresets = () => {
+
+					showModal( 'All Presets', presets );
+
+				};
+
+				configuration.exportSavedPresets = () => {
+
+					try {
+
+						const savedPresets = JSON.parse( localStorage.getItem( 'attractorPresets' ) || '{}' );
+						showModal( 'Saved Presets', savedPresets );
+
+					} catch ( e ) {
+
+						console.error( 'Failed to load presets from localStorage', e );
+
+					}
+
+				};
+
+				configuration.exportCurrentParams = () => {
+
+					showModal( 'Current Params', JSON.parse( configuration.export ) );
+
+				};
+
+				const ioFolder = gui.addFolder( 'IO' );
+				ioFolder.add( configuration, 'save' ).name( 'Save Preset' );
+				ioFolder.add( configuration, 'exportCurrentParams' ).name( 'Export Current Params' );
+				ioFolder.add( configuration, 'exportAllPresets' ).name( 'Export All Presets' );
+				ioFolder.add( configuration, 'exportSavedPresets' ).name( 'Export Saved Presets' );
+				ioFolder.add( configuration, 'deleteAllLocalPresets' ).name( '🗑️ Delete All Local Presets' );
+
+				const jsonCtrl = ioFolder.add( configuration, 'export' ).name( 'JSON' ).listen();
+				const jsonRow = jsonCtrl.domElement.closest( '.list-item-row' );
+				jsonRow.style.display = 'flex';
+				jsonRow.style.flexDirection = 'column';
+				jsonCtrl.domElement.parentElement.style.width = '100%';
+
+				ioFolder.add( configuration, 'load' );
+
+				ioFolder.add( configuration, 'recording' ).name( 'Record' );
+				ioFolder.add( configuration, 'togglePlay' ).name( '▶ / ⏸ Play / Pause' );
+				ioFolder.add( configuration, 'stop' ).name( '⏹ / ⏮ Stop / Reset' );
+				ioFolder.add( configuration, 'playbackSpeed', 0.1, 10 ).name( 'Playback Speed' );
+				
+				const cameraFolder = gui.addFolder( 'Camera' );
+				track( cameraFolder.add( configuration, 'replayCameraTrack', [ 'false', 'exact', 'easing', 'orbit' ] ).name( 'Replay Camera' ), 'replayCameraTrack' ).listen();
+				track( cameraFolder.add( configuration, 'replayCameraEasing', 0.01, 1 ).name( 'Camera Easing' ), 'replayCameraEasing' ).listen();
+				track( cameraFolder.add( configuration, 'cameraOrbitOn' ).name( 'Orbit On' ), 'cameraOrbitOn' ).listen();
+				track( cameraFolder.add( configuration, 'replayCameraOrbitSpeed', 0.01, 2 ).name( 'Orbit Speed' ), 'replayCameraOrbitSpeed' ).listen();
+				track( cameraFolder.add( configuration, 'replayCameraOrbitX', -1, 1 ).name( 'Orbit X' ), 'replayCameraOrbitX' ).listen();
+				track( cameraFolder.add( configuration, 'replayCameraOrbitY', -1, 1 ).name( 'Orbit Y' ), 'replayCameraOrbitY' ).listen();
+				track( cameraFolder.add( configuration, 'replayCameraOrbitZ', -1, 1 ).name( 'Orbit Z' ), 'replayCameraOrbitZ' ).listen();
+
+				function updateCameraFromGui() {
+
+					camera.position.set( configuration.cameraPosX, configuration.cameraPosY, configuration.cameraPosZ );
+					controls.target.set( configuration.cameraTargetX, configuration.cameraTargetY, configuration.cameraTargetZ );
+					camera.zoom = configuration.cameraZoom;
+					camera.fov = configuration.cameraFov;
+					camera.near = configuration.cameraNear;
+					camera.far = configuration.cameraFar;
+					camera.updateProjectionMatrix();
+					controls.update();
+
+				}
+
+				track( cameraFolder.add( configuration, 'cameraPosX' ).name( 'Pos X' ), 'cameraPosX' ).onChange( updateCameraFromGui ).listen();
+				track( cameraFolder.add( configuration, 'cameraPosY' ).name( 'Pos Y' ), 'cameraPosY' ).onChange( updateCameraFromGui ).listen();
+				track( cameraFolder.add( configuration, 'cameraPosZ' ).name( 'Pos Z' ), 'cameraPosZ' ).onChange( updateCameraFromGui ).listen();
+				track( cameraFolder.add( configuration, 'cameraTargetX' ).name( 'Target X' ), 'cameraTargetX' ).onChange( updateCameraFromGui ).listen();
+				track( cameraFolder.add( configuration, 'cameraTargetY' ).name( 'Target Y' ), 'cameraTargetY' ).onChange( updateCameraFromGui ).listen();
+				track( cameraFolder.add( configuration, 'cameraTargetZ' ).name( 'Target Z' ), 'cameraTargetZ' ).onChange( updateCameraFromGui ).listen();
+				track( cameraFolder.add( configuration, 'cameraZoom', 0.1, 10 ).name( 'Zoom' ), 'cameraZoom' ).onChange( updateCameraFromGui ).listen();
+				track( cameraFolder.add( configuration, 'cameraFov', 1, 179 ).name( 'FOV' ), 'cameraFov' ).onChange( updateCameraFromGui ).listen();
+				track( cameraFolder.add( configuration, 'cameraNear', 0.001, 10 ).name( 'Near' ), 'cameraNear' ).onChange( updateCameraFromGui ).listen();
+				track( cameraFolder.add( configuration, 'cameraFar', 10, 10000 ).name( 'Far' ), 'cameraFar' ).onChange( updateCameraFromGui ).listen();
+
+				ioFolder.add( configuration, 'showTicks' ).name( 'Indicate param changes' ).onChange( updateTicks );
+				timeSlider = ioFolder.add( configuration, 'playbackTime', 0, 1000 ).name( 'Time (ms)' );
+				timeSlider.onChange( ( value ) => {
+
+					if ( ! isPlaying && ! isRecordingUpdate ) {
+
+						applyStateAt( value );
+						configuration.playbackTime = value;
 
 					}
 
 				} );
 
-				gui.add( { reset }, 'reset' );
+				function updateTicks() {
+
+					if ( ! timeSlider ) return;
+
+					if ( configuration.showTicks ) {
+
+						const times = configuration.journal.map( e => e.time );
+						timeSlider.setTicks( times );
+
+					} else {
+
+						timeSlider.setTicks( null );
+
+					}
+
+				}
+
+				// Record initial camera state
+				recordChange( 'sys:camera', {
+					position: camera.position.toArray(),
+					target: controls.target.toArray(),
+					zoom: camera.zoom,
+					fov: camera.fov,
+					near: camera.near,
+					far: camera.far
+				} );
+
+				// init history
+				addToHistory();
+
+				renderer.setAnimationLoop( animate );
 
 			}
 
@@ -485,11 +1827,32 @@
 
 			}
 
+			const clock = new THREE.Clock();
+
 			async function animate() {
 
-				controls.update();
+				const dt = clock.getDelta();
 
-    			renderer.compute( updateCompute );
+				if ( configuration.cameraOrbitOn || ( isPlaying && configuration.replayCameraTrack === 'orbit' ) ) {
+
+					const angle = dt * configuration.replayCameraOrbitSpeed;
+					
+					// Apply rotation to current camera position relative to target
+					const offset = camera.position.clone().sub( controls.target );
+					const euler = new THREE.Euler(
+						angle * configuration.replayCameraOrbitX,
+						angle * configuration.replayCameraOrbitY,
+						angle * configuration.replayCameraOrbitZ
+					);
+					offset.applyEuler( euler );
+					camera.position.copy( controls.target ).add( offset );
+
+				}
+
+				if ( controls ) controls.update();
+
+				if ( updateCompute ) renderer.compute( updateCompute );
+
 				renderer.render( scene, camera );
 
 			}
