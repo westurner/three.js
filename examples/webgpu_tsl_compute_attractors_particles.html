@@ -671,71 +671,77 @@
 
 				}
 
-				let lastReplayTime = 0;
+				let lastReplayTime = - 1;
+				let lastReplayEventIndex = 0;
+				let lastReplayCameraState = null;
 
 				function applyStateAt( time ) {
 
 					isApplyingConfiguration = true;
 
-					// Restore structure
-					while ( attractors.length > initialAttractorCount ) {
+					const shouldReset = lastReplayTime < 0 || time < lastReplayTime;
 
-						configuration.removeAttractor();
+					if ( shouldReset ) {
 
-					}
+						// Restore structure
+						while ( attractors.length > initialAttractorCount ) {
 
-					while ( attractors.length < initialAttractorCount ) {
-
-						configuration.addAttractor();
-
-					}
-
-					for ( const path in initialState ) {
-
-						if ( controllerMap[ path ] ) controllerMap[ path ].setValue( initialState[ path ] );
-
-					}
-
-					let lastCameraState = null;
-
-					for ( const event of configuration.journal ) {
-
-						if ( event.time <= time ) {
-
-							if ( event.path === 'sys:addAttractor' ) {
-
-								configuration.addAttractor( event.value );
-
-							} else if ( event.path === 'sys:removeAttractor' ) {
-
-								configuration.removeAttractor();
-
-							} else if ( event.path === 'sys:camera' ) {
-
-								lastCameraState = event.value;
-
-							} else if ( controllerMap[ event.path ] ) {
-
-								controllerMap[ event.path ].setValue( event.value );
-
-							}
-
-						} else {
-
-							break;
+							configuration.removeAttractor();
 
 						}
 
+						while ( attractors.length < initialAttractorCount ) {
+
+							configuration.addAttractor();
+
+						}
+
+						for ( const path in initialState ) {
+
+							if ( controllerMap[ path ] ) controllerMap[ path ].setValue( initialState[ path ] );
+
+						}
+
+						lastReplayEventIndex = 0;
+						lastReplayCameraState = null;
+
 					}
 
-					if ( lastCameraState && configuration.replayCameraTrack !== 'false' ) {
+					while ( lastReplayEventIndex < configuration.journal.length ) {
 
-						const targetPos = new THREE.Vector3().fromArray( lastCameraState.position );
-						const targetTarget = new THREE.Vector3().fromArray( lastCameraState.target );
-						const targetZoom = lastCameraState.zoom !== undefined ? lastCameraState.zoom : camera.zoom;
-						const targetFov = lastCameraState.fov !== undefined ? lastCameraState.fov : camera.fov;
-						const targetNear = lastCameraState.near !== undefined ? lastCameraState.near : camera.near;
-						const targetFar = lastCameraState.far !== undefined ? lastCameraState.far : camera.far;
+						const event = configuration.journal[ lastReplayEventIndex ];
+						if ( event.time > time ) break;
+
+						if ( event.path === 'sys:addAttractor' ) {
+
+							configuration.addAttractor( event.value );
+
+						} else if ( event.path === 'sys:removeAttractor' ) {
+
+							configuration.removeAttractor();
+
+						} else if ( event.path === 'sys:camera' ) {
+
+							lastReplayCameraState = event.value;
+
+						} else if ( controllerMap[ event.path ] ) {
+
+							controllerMap[ event.path ].setValue( event.value );
+
+						}
+
+						lastReplayEventIndex ++;
+
+						}
+
+					if ( lastReplayCameraState && configuration.replayCameraTrack !== 'false' ) {
+
+						const targetPos = new THREE.Vector3().fromArray( lastReplayCameraState.position );
+						const targetTarget = new THREE.Vector3().fromArray( lastReplayCameraState.target );
+						const targetZoom = lastReplayCameraState.zoom !== undefined ? lastReplayCameraState.zoom : camera.zoom;
+						const targetFov = lastReplayCameraState.fov !== undefined ? lastReplayCameraState.fov : camera.fov;
+						const targetNear = lastReplayCameraState.near !== undefined ? lastReplayCameraState.near : camera.near;
+						const targetFar = lastReplayCameraState.far !== undefined ? lastReplayCameraState.far : camera.far;
 
 						if ( configuration.replayCameraTrack === 'exact' ) {
 
