@@ -1027,6 +1027,12 @@
 
 				function applyConfiguration( data ) {
 
+					if ( data.attractors !== undefined && ( ! Array.isArray( data.attractors ) || data.attractors.length < 1 || data.attractors.length > MAX_ATTRACTORS ) ) {
+
+						throw new Error( `Invalid attractor count: expected 1-${MAX_ATTRACTORS}` );
+
+					}
+
 					if ( data.attractorMassExponent !== undefined ) {
 
 						configuration.attractorMassExponent = data.attractorMassExponent;
