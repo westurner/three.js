@@ -78,7 +78,15 @@ class ParametersGroup {
 
 		} else if ( type === 'string' ) {
 
-			item = this.addString( object, property );
+			if ( params[ 0 ] === 'textarea' ) {
+
+				item = this.addTextArea( object, property );
+
+			} else {
+
+				item = this.addString( object, property );
+
+			}
 
 		} else if ( type === 'function' ) {
 
@@ -123,14 +131,22 @@ class ParametersGroup {
 
 		editor.listen = () => {
 
-			const update = () => {
+			let lastUpdate = 0;
 
-				const value = editor.getValue();
-				const propertyValue = object[ property ];
+			const update = ( time ) => {
 
-				if ( value !== propertyValue ) {
+				if ( time - lastUpdate > 100 ) {
 
-					editor.setValue( propertyValue );
+					const value = editor.getValue();
+					const propertyValue = object[ property ];
+
+					if ( value !== propertyValue ) {
+
+						editor.setValue( propertyValue );
+
+					}
+
+					lastUpdate = time;
 
 				}
 
@@ -234,6 +250,29 @@ class ParametersGroup {
 		} );
 
 		// extend object property
+
+		this._addParameter( object, property, editor, subItem );
+
+		return editor;
+
+	}
+
+	addTextArea( object, property ) {
+
+		const value = object[ property ];
+
+		const editor = new ValueTextArea( value );
+		editor.addEventListener( 'change', ( { value } ) => {
+
+			object[ property ] = value;
+
+		} );
+
+		const description = createValueSpan();
+		description.textContent = property;
+
+		const subItem = new Item( description, editor.domElement );
+		this.paramList.add( subItem );
 
 		this._addParameter( object, property, editor, subItem );
 

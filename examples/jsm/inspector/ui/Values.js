@@ -254,11 +254,32 @@ class ValueSlider extends Value {
 
 		super();
 
+		const sliderWrapper = document.createElement( 'div' );
+		sliderWrapper.style.position = 'relative';
+		sliderWrapper.style.flexGrow = '1';
+		sliderWrapper.style.display = 'flex';
+		sliderWrapper.style.alignItems = 'center';
+		sliderWrapper.style.marginRight = '10px';
+
 		this.slider = document.createElement( 'input' );
 		this.slider.type = 'range';
 		this.slider.min = min;
 		this.slider.max = max;
 		this.slider.step = step;
+		this.slider.style.width = '100%';
+		this.slider.style.margin = '0';
+		this.slider.style.cursor = 'pointer';
+
+		this.tickContainer = document.createElement( 'div' );
+		this.tickContainer.style.position = 'absolute';
+		this.tickContainer.style.left = '0';
+		this.tickContainer.style.top = '0';
+		this.tickContainer.style.width = '100%';
+		this.tickContainer.style.height = '100%';
+		this.tickContainer.style.pointerEvents = 'none';
+
+		sliderWrapper.appendChild( this.tickContainer );
+		sliderWrapper.appendChild( this.slider );
 
 		const numberValue = new ValueNumber( { value, min, max, step } );
 		this.numberInput = numberValue.input;
@@ -267,7 +288,7 @@ class ValueSlider extends Value {
 
 		this.slider.value = value;
 
-		this.domElement.append( this.slider, this.numberInput );
+		this.domElement.append( sliderWrapper, this.numberInput );
 
 		this.slider.addEventListener( 'input', () => {
 
@@ -293,6 +314,49 @@ class ValueSlider extends Value {
 		this.numberInput.value = val;
 
 		return super.setValue( val );
+
+	}
+
+	setTicks( values ) {
+
+		this.tickContainer.innerHTML = '';
+
+		if ( values && values.length > 0 ) {
+
+			const min = parseFloat( this.slider.min );
+			const max = parseFloat( this.slider.max );
+			const range = max - min;
+
+			if ( range > 0 ) {
+
+				const fragment = document.createDocumentFragment();
+
+				for ( const value of values ) {
+
+					const percent = ( value - min ) / range * 100;
+					if ( percent >= 0 && percent <= 100 ) {
+
+						const tick = document.createElement( 'div' );
+						tick.style.position = 'absolute';
+						tick.style.left = `${percent}%`;
+						tick.style.width = '2px';
+						tick.style.height = '8px';
+						tick.style.top = '50%';
+						tick.style.transform = 'translate(-50%, -50%)';
+						tick.style.backgroundColor = 'var(--color-orange, #d4892f)';
+						tick.style.pointerEvents = 'none';
+						tick.style.opacity = '0.7';
+						fragment.appendChild( tick );
+
+					}
+
+				}
+
+				this.tickContainer.appendChild( fragment );
+
+			}
+
+		}
 
 	}
 
@@ -384,6 +448,41 @@ class ValueSelect extends Value {
 		}
 
 		return super.setValue( val );
+
+	}
+
+	setOptions( options ) {
+
+		const select = this.select;
+		const value = select.value;
+
+		select.innerHTML = '';
+
+		const createOption = ( name, optionValue ) => {
+
+			const optionEl = document.createElement( 'option' );
+			optionEl.value = name;
+			optionEl.textContent = name;
+
+			if ( name == value ) optionEl.selected = true;
+
+			select.appendChild( optionEl );
+
+			return optionEl;
+
+		};
+
+		if ( Array.isArray( options ) ) {
+
+			options.forEach( opt => createOption( opt, opt ) );
+
+		} else {
+
+			Object.entries( options ).forEach( ( [ key, value ] ) => createOption( key, value ) );
+
+		}
+
+		this.options = options;
 
 	}
 
@@ -550,4 +649,94 @@ class ValueString extends Value {
 
 }
 
-export { Value, ValueNumber, ValueString, ValueCheckbox, ValueSlider, ValueSelect, ValueColor, ValueButton };
+class ValueTextArea extends Value {
+
+	constructor( value ) {
+
+		super();
+
+		const input = document.createElement( 'textarea' );
+		input.className = 'value-textarea';
+		input.style.width = '100%';
+		input.style.minHeight = '100px';
+		input.style.resize = 'vertical';
+		input.style.fontFamily = 'monospace';
+		input.style.fontSize = '11px';
+		input.style.backgroundColor = 'rgba(0, 0, 0, 0.2)';
+		input.style.color = 'var(--text-primary)';
+		input.style.border = '1px solid var(--border-color)';
+		input.style.padding = '4px';
+		input.spellcheck = false;
+
+		input.value = value;
+
+		input.onchange = () => {
+
+			this.setValue( input.value );
+
+		};
+
+		input.onkeydown = ( e ) => {
+
+			e.stopPropagation();
+
+		};
+
+		this.domElement.appendChild( input );
+		this.input = input;
+
+	}
+
+	getValue() {
+
+		return this.input.value;
+
+	}
+
+	setValue( value ) {
+
+		if ( this.input.value !== value ) {
+
+			this.input.value = value;
+
+		}
+
+		super.setValue( value );
+
+		return this;
+
+	}
+
+}
+
+class ValueJSONTextarea extends ValueTextArea {
+
+	constructor( value ) {
+
+		if ( typeof value === 'object' ) {
+
+			value = JSON.stringify( value, null, '\t' );
+
+		}
+
+		super( value );
+
+		//this.input.style.minHeight = '400px';
+
+	}
+
+	setValue( value ) {
+
+		if ( typeof value === 'object' ) {
+
+			value = JSON.stringify( value, null, '\t' );
+
+		}
+
+		super.setValue( value );
+
+	}
+
+}
+
+export { Value, ValueNumber, ValueCheckbox, ValueSlider, ValueSelect, ValueColor, ValueButton, ValueTextArea, ValueJSONTextarea };
