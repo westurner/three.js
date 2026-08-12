@@ -196,6 +196,9 @@
 			let playbackStartTimeOffset = 0;
 			let timeSlider;
 			let lastGuiUpdate = 0;
+			const MAX_JOURNAL_ENTRIES = 50000;
+			const MAX_JOURNAL_DURATION = 15 * 60 * 1000;
+			const MAX_HISTORY_ENTRIES = 100;
 
 			init();
 
@@ -640,11 +643,41 @@
 					}
 
 					const time = now - journalStartTime;
-					configuration.journal.push( {
-						time: time,
-						path: path,
-						value: value
-					} );
+					if ( time > MAX_JOURNAL_DURATION ) {
+
+						configuration.recording = false;
+						console.warn( `Recording stopped after ${MAX_JOURNAL_DURATION / 60000} minutes` );
+						return;
+
+					}
+
+					const lastEvent = configuration.journal[ configuration.journal.length - 1 ];
+					const canCoalesce = path !== 'sys:addAttractor' && path !== 'sys:removeAttractor';
+
+					if ( canCoalesce && lastEvent && lastEvent.path === path ) {
+
+						lastEvent.time = time;
+						lastEvent.value = value;
+
+					} else {
+
+						if ( configuration.journal.length >= MAX_JOURNAL_ENTRIES ) {
+
+							configuration.recording = false;
+							console.warn( `Recording stopped after ${MAX_JOURNAL_ENTRIES} events` );
+							return;
+
+						}
+
+						configuration.journal.push( {
+							time: time,
+							path: path,
+							value: value
+						} );
+
+					}
+
+					lastReplayTime = - 1;
 
 					if ( timeSlider ) {
 
@@ -935,6 +968,13 @@
 					history.push( state );
 					historyIndex ++;
 
+					if ( history.length > MAX_HISTORY_ENTRIES ) {
+
+						history.shift();
+						historyIndex --;
+
+					}
+
 				}
 
 				let historyTimeout;
@@ -973,6 +1013,7 @@
 				function updateExport() {
 
 					const exportData = { ...configuration };
+					delete exportData.journal;
 					delete exportData.export;
 					delete exportData.load;
 					delete exportData.reset;
