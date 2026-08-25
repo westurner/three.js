@@ -22,7 +22,7 @@
 			<small>
 				Compute Attractors Particles.
 			</small>
-
+			<!--
 			<code style="margin-top: 3em; font-family: monospace;">
 				- [o] style button background color
 				- [ ] hide controls when controlsMode = hidden
@@ -1242,7 +1242,8 @@
 							}
 						]
 					},
-					'Solar System': {
+
+					'Nine Fixed Attractors and equal magnitude and rotations': {
 						...JSON.parse( configuration.export ),
 						"boundHalfExtent": 50,
 						"attractors": [
@@ -1257,6 +1258,42 @@
 							{ "position": [9.914935, 15.423234, 6.614591], "rotation": [0, 0, 0] }, // Uranus
 							{ "position": [29.872943, 0.724464, -0.447144], "rotation": [0, 0, 0] }, // Neptune
 							{ "position": [19.200213, -26.268900, -13.981278], "rotation": [0, 0, 0] } // Pluto
+						]
+					},
+
+					'Nine Fixed Attractors with equal magnitude': {
+						...JSON.parse( configuration.export ),
+						"boundHalfExtent": 50,
+						"attractors": [
+							{ "position": [0, 0, 0], "rotation": [0.126536, 0, 0] }, // Sun
+							{ "position": [-0.364457, -0.221686, -0.080653], "rotation": [0.000593, 0, 0] }, // Mercury
+							{ "position": [-0.111425, -0.657243, -0.288691], "rotation": [3.095516, 0, 0] }, // Venus
+							{ "position": [-0.000267, 0.902619, 0.391272], "rotation": [0.409105, 0, 0] }, // Earth
+							{ "position": [0.000708, 0.900418, 0.390124], "rotation": [0.116588, 0, 0] }, // Moon
+							{ "position": [0.197800, -1.293942, -0.598836], "rotation": [0.439648, 0, 0] }, // Mars
+							{ "position": [-1.621310, 4.534772, 1.983192], "rotation": [0.054629, 0, 0] }, // Jupiter
+							{ "position": [9.511834, 0.337141, -0.270341], "rotation": [0.466527, 0, 0] }, // Saturn
+							{ "position": [9.914935, 15.423234, 6.614591], "rotation": [1.706408, 0, 0] }, // Uranus
+							{ "position": [29.872943, 0.724464, -0.447144], "rotation": [0.494277, 0, 0] }, // Neptune
+							{ "position": [19.200213, -26.268900, -13.981278], "rotation": [2.087588, 0, 0] } // Pluto
+						]
+					},
+
+					'Nine Fixed Attractors': {
+						...JSON.parse( configuration.export ),
+						"boundHalfExtent": 50,
+						"attractors": [
+							{ "position": [0, 0, 0], "rotation": [0.126536, 0, 0] }, // Sun
+							{ "position": [-0.364457, -0.221686, -0.080653], "rotation": [0.000593, 0, 0] }, // Mercury
+							{ "position": [-0.111425, -0.657243, -0.288691], "rotation": [3.095516, 0, 0] }, // Venus
+							{ "position": [-0.000267, 0.902619, 0.391272], "rotation": [0.409105, 0, 0] }, // Earth
+							{ "position": [0.000708, 0.900418, 0.390124], "rotation": [0.116588, 0, 0] }, // Moon
+							{ "position": [0.197800, -1.293942, -0.598836], "rotation": [0.439648, 0, 0] }, // Mars
+							{ "position": [-1.621310, 4.534772, 1.983192], "rotation": [0.054629, 0, 0] }, // Jupiter
+							{ "position": [9.511834, 0.337141, -0.270341], "rotation": [0.466527, 0, 0] }, // Saturn
+							{ "position": [9.914935, 15.423234, 6.614591], "rotation": [1.706408, 0, 0] }, // Uranus
+							{ "position": [29.872943, 0.724464, -0.447144], "rotation": [0.494277, 0, 0] }, // Neptune
+							{ "position": [19.200213, -26.268900, -13.981278], "rotation": [2.087588, 0, 0] } // Pluto
 						]
 					}
 				};
@@ -1694,11 +1731,11 @@
 				const ioFolder = gui.addFolder( 'IO' );
 				ioFolder.add( configuration, 'save' ).name( 'Save Preset' );
 				ioFolder.add( configuration, 'exportCurrentParams' ).name( 'Export Current Params' );
-				ioFolder.add( configuration, 'exportAllPresets' ).name( 'Export All Presets' );
 				ioFolder.add( configuration, 'exportSavedPresets' ).name( 'Export Saved Presets' );
+				ioFolder.add( configuration, 'exportAllPresets' ).name( 'Export All Presets' );
 				ioFolder.add( configuration, 'deleteAllLocalPresets' ).name( '🗑️ Delete All Local Presets' );
 
-				const jsonCtrl = ioFolder.add( configuration, 'export' ).name( 'JSON' ).listen();
+				const jsonCtrl = ioFolder.add( configuration, 'export' ).name( 'Preset JSON' ).listen();
 				const jsonRow = jsonCtrl.domElement.closest( '.list-item-row' );
 				jsonRow.style.display = 'flex';
 				jsonRow.style.flexDirection = 'column';
@@ -1706,9 +1743,9 @@
 
 				ioFolder.add( configuration, 'load' );
 
-				ioFolder.add( configuration, 'recording' ).name( 'Record' );
-				ioFolder.add( configuration, 'togglePlay' ).name( '▶ / ⏸ Play / Pause' );
-				ioFolder.add( configuration, 'stop' ).name( '⏹ / ⏮ Stop / Reset' );
+				ioFolder.add( configuration, 'recording' ).name( 'Record simulation (slow)' );
+				ioFolder.add( configuration, 'togglePlay' ).name( '▶ Play / ⏸ Pause' );
+				ioFolder.add( configuration, 'stop' ).name( '⏹ Stop / ⏮ Reset' );
 				ioFolder.add( configuration, 'playbackSpeed', 0.1, 10 ).name( 'Playback Speed' );
 
 				const cameraFolder = gui.addFolder( 'Camera' );
@@ -1800,10 +1837,11 @@
 
 			}
 
-			const clock = new THREE.Clock();
+			const clock = new THREE.Timer();
 
 			async function animate() {
 
+				clock.update()
 				const dt = clock.getDelta();
 
 				if ( configuration.cameraOrbitOn || ( isPlaying && configuration.replayCameraTrack === 'orbit' ) ) {

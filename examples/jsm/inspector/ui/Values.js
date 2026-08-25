@@ -739,4 +739,4 @@ class ValueJSONTextarea extends ValueTextArea {
 
 }
 
-export { Value, ValueNumber, ValueCheckbox, ValueSlider, ValueSelect, ValueColor, ValueButton, ValueTextArea, ValueJSONTextarea };
+export { Value, ValueNumber, ValueCheckbox, ValueSlider, ValueSelect, ValueColor, ValueButton, ValueString, ValueTextArea, ValueJSONTextarea };
