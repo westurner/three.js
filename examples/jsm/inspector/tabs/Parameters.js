@@ -2,7 +2,7 @@ import { Tab } from '../ui/Tab.js';
 import { List } from '../ui/List.js';
 import { Item } from '../ui/Item.js';
 import { createValueSpan, info } from '../ui/utils.js';
-import { ValueString, ValueNumber, ValueSlider, ValueSelect, ValueCheckbox, ValueColor, ValueButton, ValueTextArea } from '../ui/Values.js';
+import { ValueString, ValueNumber, ValueSlider, ValueSelect, ValueCheckbox, ValueColor, ValueButton, ValueJSONTextarea } from '../ui/Values.js';
 
 class ParametersGroup {
 
@@ -142,7 +142,7 @@ class ParametersGroup {
 
 					if ( value !== propertyValue ) {
 
-						editor.setValue( propertyValue );
+						editor.setValue( propertyValue, false );
 
 					}
 
@@ -261,7 +261,7 @@ class ParametersGroup {
 
 		const value = object[ property ];
 
-		const editor = new ValueTextArea( value );
+		const editor = new ValueJSONTextarea( value );
 		editor.addEventListener( 'change', ( { value } ) => {
 
 			object[ property ] = value;

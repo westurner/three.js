@@ -29,9 +29,9 @@ class Value extends EventDispatcher {
 
 	}
 
-	setValue( /*val*/ ) {
+	setValue( value, dispatch = true ) {
 
-		this.dispatchChange();
+		if ( value !== undefined && dispatch ) this.dispatchChange();
 
 		return this;
 
@@ -187,11 +187,11 @@ class ValueNumber extends Value {
 
 	}
 
-	setValue( val ) {
+	setValue( val, dispatch = true ) {
 
 		this.input.value = val;
 
-		return super.setValue( val );
+		return super.setValue( val, dispatch );
 
 	}
 
@@ -232,11 +232,11 @@ class ValueCheckbox extends Value {
 
 	}
 
-	setValue( val ) {
+	setValue( val, dispatch = true ) {
 
 		this.checkbox.checked = val;
 
-		return super.setValue( val );
+		return super.setValue( val, dispatch );
 
 	}
 
@@ -308,12 +308,12 @@ class ValueSlider extends Value {
 
 	}
 
-	setValue( val ) {
+	setValue( val, dispatch = true ) {
 
 		this.slider.value = val;
 		this.numberInput.value = val;
 
-		return super.setValue( val );
+		return super.setValue( val, dispatch );
 
 	}
 
@@ -425,7 +425,7 @@ class ValueSelect extends Value {
 
 	}
 
-	setValue( val ) {
+	setValue( val, dispatch = true ) {
 
 		if ( Array.isArray( this.options ) ) {
 
@@ -447,7 +447,7 @@ class ValueSelect extends Value {
 
 		}
 
-		return super.setValue( val );
+		return super.setValue( val, dispatch );
 
 	}
 
@@ -539,7 +539,7 @@ class ValueColor extends Value {
 
 	}
 
-	setValue( val ) {
+	setValue( val, dispatch = true ) {
 
 		const colorHex = this._getColorHex( val );
 
@@ -555,7 +555,7 @@ class ValueColor extends Value {
 
 		}
 
-		return super.setValue( val );
+		return super.setValue( val, dispatch );
 
 	}
 
@@ -633,11 +633,11 @@ class ValueString extends Value {
 
 	}
 
-	setValue( val ) {
+	setValue( val, dispatch = true ) {
 
 		this.input.value = val;
 
-		return super.setValue( val );
+		return super.setValue( val, dispatch );
 
 	}
 

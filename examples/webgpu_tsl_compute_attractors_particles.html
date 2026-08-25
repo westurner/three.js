@@ -165,6 +165,15 @@
 				color: #fff;
 			}
 
+			.attractor-label {
+				color: #fff;
+				font-family: monospace;
+				font-size: 12px;
+				font-weight: bold;
+				text-shadow: 0 0 3px #000, 0 0 3px #000;
+				white-space: nowrap;
+			}
+
 
 		</style>
 
@@ -189,8 +198,9 @@
 
 			import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 			import { TransformControls } from 'three/addons/controls/TransformControls.js';
+			import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 
-			let camera, scene, renderer, controls, updateCompute, configuration;
+			let camera, scene, renderer, labelRenderer, controls, updateCompute, configuration;
 			let journalStartTime = 0;
 			let isPlaying = false;
 			let playbackStartTimestamp = 0;
@@ -227,6 +237,15 @@
 				renderer.setClearColor( '#000000' );
 				renderer.inspector = new Inspector();
 				document.body.appendChild( renderer.domElement );
+
+				labelRenderer = new CSS2DRenderer();
+				labelRenderer.setSize( window.innerWidth, window.innerHeight );
+				labelRenderer.domElement.style.position = 'fixed';
+				labelRenderer.domElement.style.top = '0';
+				labelRenderer.domElement.style.left = '0';
+				labelRenderer.domElement.style.pointerEvents = 'none';
+				labelRenderer.domElement.style.zIndex = '1';
+				document.body.appendChild( labelRenderer.domElement );
 
 				await renderer.init();
 
@@ -278,21 +297,63 @@
 					new THREE.Vector3( 0, 1, 0 ),
 					new THREE.Vector3( 1, 0, - 0.5 ).normalize()
 				];
+				const initialAttractorsMagnitudes = [ 1, 1, 1 ];
 
 				for ( let i = initialAttractorsPositions.length; i < MAX_ATTRACTORS; i ++ ) {
 
 					initialAttractorsPositions.push( new THREE.Vector3( 0, 0, 0 ) );
 					initialAttractorsRotationAxes.push( new THREE.Vector3( 0, 1, 0 ) );
+					initialAttractorsMagnitudes.push( 1 );
 
 				}
 
 				const attractorsPositions = uniformArray( initialAttractorsPositions );
 				const attractorsRotationAxes = uniformArray( initialAttractorsRotationAxes );
+				const attractorsMagnitudes = uniformArray( initialAttractorsMagnitudes );
 				const attractorsLength = uniform( 3, 'uint' );
 				const attractors = [];
 				const helpersRingGeometry = new THREE.RingGeometry( 1, 1.02, 32, 1, 0, Math.PI * 1.5 );
 				const helpersArrowGeometry = new THREE.ConeGeometry( 0.1, 0.4, 12, 1, false );
 				const helpersMaterial = new THREE.MeshBasicMaterial( { side: THREE.DoubleSide } );
+
+				function updateAttractorHelper( index ) {
+
+					const attractor = attractors[ index ];
+					if ( ! attractor ) return;
+
+					const magnitudes = attractors.map( item => Math.max( 0, Number( item.magnitude ) ) );
+					const positiveMagnitudes = magnitudes.filter( magnitude => magnitude > 0 );
+					const magnitude = Math.max( 0, Number( attractor.magnitude ) );
+					let arrowScale = 0.25;
+
+					if ( positiveMagnitudes.length > 0 ) {
+
+						const minLogMagnitude = Math.log10( Math.min( ...positiveMagnitudes ) );
+						const maxLogMagnitude = Math.log10( Math.max( ...positiveMagnitudes ) );
+
+						if ( minLogMagnitude === maxLogMagnitude ) {
+
+							arrowScale = 1;
+
+						} else if ( magnitude > 0 ) {
+
+							arrowScale = 0.25 + 0.75 * ( Math.log10( magnitude ) - minLogMagnitude ) / ( maxLogMagnitude - minLogMagnitude );
+
+						}
+
+					}
+
+					attractor.arrow.scale.set( 1, arrowScale, 1 );
+					attractor.label.element.textContent = attractor.name;
+					attractor.label.visible = configuration ? configuration.helperShowName : false;
+
+				}
+
+				function updateAttractorHelpers() {
+
+					attractors.forEach( ( attractor, index ) => updateAttractorHelper( index ) );
+
+				}
 
 				function createAttractor( i ) {
 
@@ -300,6 +361,8 @@
 
 					attractor.position = attractorsPositions.array[ i ];
 					attractor.orientation = attractorsRotationAxes.array[ i ];
+					attractor.magnitude = attractorsMagnitudes.array[ i ];
+					attractor.name = `Attractor ${i}`;
 					attractor.reference = new THREE.Object3D();
 					attractor.reference.position.copy( attractor.position );
 					attractor.reference.quaternion.setFromUnitVectors( new THREE.Vector3( 0, 1, 0 ), attractor.orientation );
@@ -318,6 +381,11 @@
 					attractor.arrow.position.z = 0.2;
 					attractor.arrow.rotation.x = Math.PI * 0.5;
 					attractor.helper.add( attractor.arrow );
+
+					attractor.label = new CSS2DObject();
+					attractor.label.position.set( 0, 1.5, 0 );
+					attractor.label.element.className = 'attractor-label';
+					attractor.reference.add( attractor.label );
 
 					attractor.controls = new TransformControls( camera, renderer.domElement );
 					attractor.controls.mode = 'rotate';
@@ -361,6 +429,7 @@
 					} );
 
 					attractors.push( attractor );
+					updateAttractorHelper( i );
 
 				}
 
@@ -454,12 +523,13 @@
 
 						const attractorPosition = attractorsPositions.element( i );
 						const attractorRotationAxis = attractorsRotationAxes.element( i );
+						const attractorMagnitude = attractorsMagnitudes.element( i );
 						const toAttractor = attractorPosition.sub( position );
 						const distance = toAttractor.length();
 						const direction = toAttractor.normalize();
 
 						// gravity
-						const gravityStrength = attractorMass.mul( particleMass ).mul( gravityConstant ).div( distance.pow( 2 ) ).toVar();
+						const gravityStrength = attractorMass.mul( particleMass ).mul( gravityConstant ).mul( attractorMagnitude ).div( distance.pow( 2 ) ).toVar();
 						const gravityForce = direction.mul( gravityStrength );
 						force.addAssign( gravityForce );
 
@@ -560,6 +630,7 @@
 
 							let newValue;
 							const attractorMatch = path.match( /^attractors\[(\d+)\]\.(position|rotation)\.([xyz])$/ );
+							const magnitudeMatch = path.match( /^attractors\[(\d+)\]\.magnitude$/ );
 
 							if ( attractorMatch ) {
 
@@ -571,6 +642,16 @@
 								if ( preset.attractors && preset.attractors[ index ] ) {
 
 									newValue = preset.attractors[ index ][ prop ][ axisIndex ];
+
+								}
+
+							} else if ( magnitudeMatch ) {
+
+								const index = parseInt( magnitudeMatch[ 1 ] );
+
+								if ( preset.attractors && preset.attractors[ index ] ) {
+
+									newValue = preset.attractors[ index ].magnitude;
 
 								}
 
@@ -632,7 +713,8 @@
 						if ( now - lastGuiUpdate > 100 ) {
 
 							isRecordingUpdate = true;
-							timeSlider.setValue( duration );
+							timeSlider.slider.value = duration;
+							timeSlider.numberInput.value = duration;
 							isRecordingUpdate = false;
 							configuration.playbackTime = duration;
 							updateTicks();
@@ -833,6 +915,7 @@
 					controlsColorZ: '#222222',
 					controlsMode: attractors[ 0 ].controls.mode,
 					helperVisible: attractors[ 0 ].helper.visible,
+					helperShowName: false,
 					newAttractorPlacement: 'origin',
 					newAttractorRandomDist: 3.14,
 					replayCameraTrack: 'easing',
@@ -883,6 +966,7 @@
 
 				let currentPresetName = 'Default';
 				let isApplyingConfiguration = false;
+				let isApplyingPreset = false;
 				let isRecordingUpdate = false;
 				let presetController;
 				const history = [];
@@ -959,12 +1043,14 @@
 
 					exportData.attractors = attractors.map( a => ( {
 						position: a.reference.position.toArray(),
-						rotation: a.reference.rotation.toArray().slice( 0, 3 )
+						rotation: a.reference.rotation.toArray().slice( 0, 3 ),
+						name: a.name,
+						magnitude: a.magnitude
 					} ) );
 
 					configuration.export = JSON.stringify( exportData, null, '\t' );
 
-					if ( ! isApplyingConfiguration && presetController ) {
+					if ( ! isApplyingConfiguration && ! isApplyingPreset && presetController ) {
 
 						if ( ! currentPresetName.includes( 'draft' ) ) {
 
@@ -973,7 +1059,7 @@
 							currentPresetName = draftName;
 
 							presetController.setOptions( Object.keys( presets ) );
-							presetController.setValue( currentPresetName );
+							presetController.select.value = currentPresetName;
 
 						} else {
 
@@ -994,11 +1080,27 @@
 
 					attractor.position.copy( attractor.reference.position );
 					attractor.orientation.copy( new THREE.Vector3( 0, 1, 0 ).applyQuaternion( attractor.reference.quaternion ) );
+					updateAttractorHelper( index );
+					updateExport();
+
+				}
+
+				function updateAttractorMagnitude( index ) {
+
+					const attractor = attractors[ index ];
+					if ( ! attractor ) return;
+
+					attractor.magnitude = Math.max( 0, Number( attractor.magnitude ) );
+					attractorsMagnitudes.array[ index ] = attractor.magnitude;
+					updateAttractorHelpers();
 					updateExport();
 
 				}
 
 				function applyConfiguration( data ) {
+
+					const previousApplyingConfiguration = isApplyingConfiguration;
+					isApplyingConfiguration = true;
 
 					if ( data.attractorMassExponent !== undefined ) {
 
@@ -1101,6 +1203,13 @@
 
 					}
 
+					if ( data.helperShowName !== undefined ) {
+
+						configuration.helperShowName = data.helperShowName;
+						updateAttractorHelpers();
+
+					}
+
 					if ( data.attractors ) {
 
 						// Resize attractors list to match data
@@ -1121,6 +1230,9 @@
 
 								attractors[ i ].reference.position.fromArray( aData.position );
 								attractors[ i ].reference.rotation.fromArray( aData.rotation );
+								attractors[ i ].name = aData.name || `Attractor ${i}`;
+								attractors[ i ].magnitude = aData.magnitude !== undefined ? Math.max( 0, Number( aData.magnitude ) ) : 1;
+								attractorsMagnitudes.array[ i ] = attractors[ i ].magnitude;
 								updateAttractor( i );
 
 							}
@@ -1130,6 +1242,7 @@
 					}
 
 					updateExport();
+					isApplyingConfiguration = previousApplyingConfiguration;
 
 				}
 
@@ -1159,6 +1272,8 @@
 									0.8815631664306667,
 									0
 								],
+								"name": "Attractor 0",
+								"magnitude": 1,
 								"rotation": [
 									0,
 									0,
@@ -1171,6 +1286,8 @@
 									0,
 									-0.5
 								],
+								"name": "Attractor 1",
+								"magnitude": 1,
 								"rotation": [
 									0,
 									0,
@@ -1183,6 +1300,8 @@
 									0.5,
 									1
 								],
+								"name": "Attractor 2",
+								"magnitude": 1,
 								"rotation": [
 									-0.5097396788315067,
 									0.41151684606748784,
@@ -1210,6 +1329,8 @@
 									2,
 									0
 								],
+								"name": "Attractor 0",
+								"magnitude": 1,
 								"rotation": [
 									0,
 									0,
@@ -1222,6 +1343,8 @@
 									0,
 									-0.5
 								],
+								"name": "Attractor 1",
+								"magnitude": 1,
 								"rotation": [
 									0,
 									0,
@@ -1234,6 +1357,8 @@
 									0.5,
 									1
 								],
+								"name": "Attractor 2",
+								"magnitude": 1,
 								"rotation": [
 									0.2,
 									0.41151684606748784,
@@ -1247,17 +1372,17 @@
 						...JSON.parse( configuration.export ),
 						"boundHalfExtent": 50,
 						"attractors": [
-							{ "position": [0, 0, 0], "rotation": [0, 0, 0] }, // Sun
-							{ "position": [-0.364457, -0.221686, -0.080653], "rotation": [0, 0, 0] }, // Mercury
-							{ "position": [-0.111425, -0.657243, -0.288691], "rotation": [0, 0, 0] }, // Venus
-							{ "position": [-0.000267, 0.902619, 0.391272], "rotation": [0, 0, 0] }, // Earth
-							{ "position": [0.000708, 0.900418, 0.390124], "rotation": [0, 0, 0] }, // Moon
-							{ "position": [0.197800, -1.293942, -0.598836], "rotation": [0, 0, 0] }, // Mars
-							{ "position": [-1.621310, 4.534772, 1.983192], "rotation": [0, 0, 0] }, // Jupiter
-							{ "position": [9.511834, 0.337141, -0.270341], "rotation": [0, 0, 0] }, // Saturn
-							{ "position": [9.914935, 15.423234, 6.614591], "rotation": [0, 0, 0] }, // Uranus
-							{ "position": [29.872943, 0.724464, -0.447144], "rotation": [0, 0, 0] }, // Neptune
-							{ "position": [19.200213, -26.268900, -13.981278], "rotation": [0, 0, 0] } // Pluto
+							{ "position": [0, 0, 0], "name": "Sun", "magnitude": 1, "rotation": [0, 0, 0] },
+							{ "position": [-0.364457, -0.221686, -0.080653], "name": "Mercury", "magnitude": 1, "rotation": [0, 0, 0] },
+							{ "position": [-0.111425, -0.657243, -0.288691], "name": "Venus", "magnitude": 1, "rotation": [0, 0, 0] },
+							{ "position": [-0.000267, 0.902619, 0.391272], "name": "Earth", "magnitude": 1, "rotation": [0, 0, 0] },
+							{ "position": [0.000708, 0.900418, 0.390124], "name": "Moon", "magnitude": 1, "rotation": [0, 0, 0] },
+							{ "position": [0.197800, -1.293942, -0.598836], "name": "Mars", "magnitude": 1, "rotation": [0, 0, 0] },
+							{ "position": [-1.621310, 4.534772, 1.983192], "name": "Jupiter", "magnitude": 1, "rotation": [0, 0, 0] },
+							{ "position": [9.511834, 0.337141, -0.270341], "name": "Saturn", "magnitude": 1, "rotation": [0, 0, 0] },
+							{ "position": [9.914935, 15.423234, 6.614591], "name": "Uranus", "magnitude": 1, "rotation": [0, 0, 0] },
+							{ "position": [29.872943, 0.724464, -0.447144], "name": "Neptune", "magnitude": 1, "rotation": [0, 0, 0] },
+							{ "position": [19.200213, -26.268900, -13.981278], "name": "Pluto", "magnitude": 1, "rotation": [0, 0, 0] }
 						]
 					},
 
@@ -1265,17 +1390,17 @@
 						...JSON.parse( configuration.export ),
 						"boundHalfExtent": 50,
 						"attractors": [
-							{ "position": [0, 0, 0], "rotation": [0.126536, 0, 0] }, // Sun
-							{ "position": [-0.364457, -0.221686, -0.080653], "rotation": [0.000593, 0, 0] }, // Mercury
-							{ "position": [-0.111425, -0.657243, -0.288691], "rotation": [3.095516, 0, 0] }, // Venus
-							{ "position": [-0.000267, 0.902619, 0.391272], "rotation": [0.409105, 0, 0] }, // Earth
-							{ "position": [0.000708, 0.900418, 0.390124], "rotation": [0.116588, 0, 0] }, // Moon
-							{ "position": [0.197800, -1.293942, -0.598836], "rotation": [0.439648, 0, 0] }, // Mars
-							{ "position": [-1.621310, 4.534772, 1.983192], "rotation": [0.054629, 0, 0] }, // Jupiter
-							{ "position": [9.511834, 0.337141, -0.270341], "rotation": [0.466527, 0, 0] }, // Saturn
-							{ "position": [9.914935, 15.423234, 6.614591], "rotation": [1.706408, 0, 0] }, // Uranus
-							{ "position": [29.872943, 0.724464, -0.447144], "rotation": [0.494277, 0, 0] }, // Neptune
-							{ "position": [19.200213, -26.268900, -13.981278], "rotation": [2.087588, 0, 0] } // Pluto
+							{ "position": [0, 0, 0], "name": "Sun", "magnitude": 1, "rotation": [0.126536, 0, 0] },
+							{ "position": [-0.364457, -0.221686, -0.080653], "name": "Mercury", "magnitude": 1, "rotation": [0.000593, 0, 0] },
+							{ "position": [-0.111425, -0.657243, -0.288691], "name": "Venus", "magnitude": 1, "rotation": [3.095516, 0, 0] },
+							{ "position": [-0.000267, 0.902619, 0.391272], "name": "Earth", "magnitude": 1, "rotation": [0.409105, 0, 0] },
+							{ "position": [0.000708, 0.900418, 0.390124], "name": "Moon", "magnitude": 1, "rotation": [0.116588, 0, 0] },
+							{ "position": [0.197800, -1.293942, -0.598836], "name": "Mars", "magnitude": 1, "rotation": [0.439648, 0, 0] },
+							{ "position": [-1.621310, 4.534772, 1.983192], "name": "Jupiter", "magnitude": 1, "rotation": [0.054629, 0, 0] },
+							{ "position": [9.511834, 0.337141, -0.270341], "name": "Saturn", "magnitude": 1, "rotation": [0.466527, 0, 0] },
+							{ "position": [9.914935, 15.423234, 6.614591], "name": "Uranus", "magnitude": 1, "rotation": [1.706408, 0, 0] },
+							{ "position": [29.872943, 0.724464, -0.447144], "name": "Neptune", "magnitude": 1, "rotation": [0.494277, 0, 0] },
+							{ "position": [19.200213, -26.268900, -13.981278], "name": "Pluto", "magnitude": 1, "rotation": [2.087588, 0, 0] }
 						]
 					},
 
@@ -1283,17 +1408,17 @@
 						...JSON.parse( configuration.export ),
 						"boundHalfExtent": 50,
 						"attractors": [
-							{ "position": [0, 0, 0], "rotation": [0.126536, 0, 0] }, // Sun
-							{ "position": [-0.364457, -0.221686, -0.080653], "rotation": [0.000593, 0, 0] }, // Mercury
-							{ "position": [-0.111425, -0.657243, -0.288691], "rotation": [3.095516, 0, 0] }, // Venus
-							{ "position": [-0.000267, 0.902619, 0.391272], "rotation": [0.409105, 0, 0] }, // Earth
-							{ "position": [0.000708, 0.900418, 0.390124], "rotation": [0.116588, 0, 0] }, // Moon
-							{ "position": [0.197800, -1.293942, -0.598836], "rotation": [0.439648, 0, 0] }, // Mars
-							{ "position": [-1.621310, 4.534772, 1.983192], "rotation": [0.054629, 0, 0] }, // Jupiter
-							{ "position": [9.511834, 0.337141, -0.270341], "rotation": [0.466527, 0, 0] }, // Saturn
-							{ "position": [9.914935, 15.423234, 6.614591], "rotation": [1.706408, 0, 0] }, // Uranus
-							{ "position": [29.872943, 0.724464, -0.447144], "rotation": [0.494277, 0, 0] }, // Neptune
-							{ "position": [19.200213, -26.268900, -13.981278], "rotation": [2.087588, 0, 0] } // Pluto
+							{ "position": [0, 0, 0], "name": "Sun", "magnitude": 1, "rotation": [0.126536, 0, 0] },
+							{ "position": [-0.364457, -0.221686, -0.080653], "name": "Mercury", "magnitude": 1.660e-7, "rotation": [0.000593, 0, 0] },
+							{ "position": [-0.111425, -0.657243, -0.288691], "name": "Venus", "magnitude": 2.447e-6, "rotation": [3.095516, 0, 0] },
+							{ "position": [-0.000267, 0.902619, 0.391272], "name": "Earth", "magnitude": 3.003e-6, "rotation": [0.409105, 0, 0] },
+							{ "position": [0.000708, 0.900418, 0.390124], "name": "Moon", "magnitude": 3.694e-8, "rotation": [0.116588, 0, 0] },
+							{ "position": [0.197800, -1.293942, -0.598836], "name": "Mars", "magnitude": 3.227e-7, "rotation": [0.439648, 0, 0] },
+							{ "position": [-1.621310, 4.534772, 1.983192], "name": "Jupiter", "magnitude": 9.545e-4, "rotation": [0.054629, 0, 0] },
+							{ "position": [9.511834, 0.337141, -0.270341], "name": "Saturn", "magnitude": 2.858e-4, "rotation": [0.466527, 0, 0] },
+							{ "position": [9.914935, 15.423234, 6.614591], "name": "Uranus", "magnitude": 4.366e-5, "rotation": [1.706408, 0, 0] },
+							{ "position": [29.872943, 0.724464, -0.447144], "name": "Neptune", "magnitude": 5.151e-5, "rotation": [0.494277, 0, 0] },
+							{ "position": [19.200213, -26.268900, -13.981278], "name": "Pluto", "magnitude": 6.556e-9, "rotation": [2.087588, 0, 0] }
 						]
 					}
 				};
@@ -1312,9 +1437,11 @@
 				presetController = gui.add( { preset: 'Default' }, 'preset', Object.keys( presets ) ).onChange( value => {
 
 					currentPresetName = value;
+					isApplyingPreset = true;
 					isApplyingConfiguration = true;
 					applyConfiguration( presets[ value ] );
 					isApplyingConfiguration = false;
+					requestAnimationFrame( () => isApplyingPreset = false );
 					addToHistory();
 
 				} );
@@ -1429,6 +1556,8 @@
 
 				} ).listen();
 
+				track( gui.add( configuration, 'helperShowName' ), 'helperShowName' ).onChange( updateAttractorHelpers ).listen();
+
 				gui.add( configuration, 'reset' );
 
 				const colorsFolder = gui.addFolder( 'Colors' );
@@ -1504,6 +1633,7 @@
 					track( folder.add( attractor.reference.rotation, 'x' ).name( 'Rot X' ), `attractors[${i}].rotation.x` ).onChange( () => updateAttractor( i ) ).listen();
 					track( folder.add( attractor.reference.rotation, 'y' ).name( 'Rot Y' ), `attractors[${i}].rotation.y` ).onChange( () => updateAttractor( i ) ).listen();
 					track( folder.add( attractor.reference.rotation, 'z' ).name( 'Rot Z' ), `attractors[${i}].rotation.z` ).onChange( () => updateAttractor( i ) ).listen();
+					track( folder.add( attractor, 'magnitude' ).name( 'Magnitude' ), `attractors[${i}].magnitude` ).onChange( () => updateAttractorMagnitude( i ) ).listen();
 
 					attractor.controls.addEventListener( 'change', () => updateExport() );
 
@@ -1537,6 +1667,9 @@
 
 						attractors[ i ].reference.position.fromArray( initialState.position );
 						attractors[ i ].reference.rotation.fromArray( initialState.rotation );
+						attractors[ i ].name = initialState.name || `Attractor ${i}`;
+						attractors[ i ].magnitude = initialState.magnitude !== undefined ? Math.max( 0, Number( initialState.magnitude ) ) : 1;
+						attractorsMagnitudes.array[ i ] = attractors[ i ].magnitude;
 
 					} else {
 
@@ -1600,7 +1733,9 @@
 
 					recordChange( 'sys:addAttractor', {
 						position: attractors[ i ].reference.position.toArray(),
-						rotation: attractors[ i ].reference.rotation.toArray().slice( 0, 3 )
+						rotation: attractors[ i ].reference.rotation.toArray().slice( 0, 3 ),
+						name: attractors[ i ].name,
+						magnitude: attractors[ i ].magnitude
 					} );
 
 				};
@@ -1834,6 +1969,7 @@
 				camera.updateProjectionMatrix();
 
 				renderer.setSize( window.innerWidth, window.innerHeight );
+				labelRenderer.setSize( window.innerWidth, window.innerHeight );
 
 			}
 
@@ -1865,6 +2001,7 @@
 				if ( updateCompute ) renderer.compute( updateCompute );
 
 				renderer.render( scene, camera );
+				labelRenderer.render( scene, camera );
 
 			}
 
