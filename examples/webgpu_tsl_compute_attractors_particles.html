@@ -207,6 +207,7 @@
 			let playbackStartTimeOffset = 0;
 			let timeSlider;
 			let lastGuiUpdate = 0;
+			let labelsNeedUpdate = true;
 
 			init();
 
@@ -255,6 +256,7 @@
 				controls.maxDistance = 50;
 
 				controls.addEventListener( 'change', () => {
+					labelsNeedUpdate = true;
 
 					if ( configuration ) {
 
@@ -315,6 +317,54 @@
 				const helpersRingGeometry = new THREE.RingGeometry( 1, 1.02, 32, 1, 0, Math.PI * 1.5 );
 				const helpersArrowGeometry = new THREE.ConeGeometry( 0.1, 0.4, 12, 1, false );
 				const helpersMaterial = new THREE.MeshBasicMaterial( { side: THREE.DoubleSide } );
+				const cameraQuaternion = new THREE.Quaternion();
+				const referenceQuaternion = new THREE.Quaternion();
+				const cameraDown = new THREE.Vector3();
+
+				function updateAttractorLabelPosition( attractor, worldDown = null ) {
+
+					const showName = configuration ? configuration.helperShowName : false;
+					attractor.label.visible = showName;
+
+					if ( ! showName || ! configuration || ! configuration.helperShowNamesBelow ) {
+
+						attractor.label.position.set( 0, 1.5, 0 );
+						return;
+
+					}
+
+					if ( worldDown === null ) {
+
+						cameraDown.set( 0, - 1, 0 ).applyQuaternion( camera.getWorldQuaternion( cameraQuaternion ) );
+						worldDown = cameraDown;
+
+					}
+
+					referenceQuaternion.copy( attractor.reference.quaternion ).invert();
+					attractor.label.position.copy( worldDown ).applyQuaternion( referenceQuaternion ).multiplyScalar( 1.5 );
+
+				}
+
+				function updateAttractorLabelPositions() {
+
+					if ( ! configuration || ! configuration.helperShowName ) {
+
+						attractors.forEach( attractor => attractor.label.visible = false );
+						return;
+
+					}
+
+					if ( ! configuration.helperShowNamesBelow ) {
+
+						attractors.forEach( attractor => updateAttractorLabelPosition( attractor ) );
+						return;
+
+					}
+
+					cameraDown.set( 0, - 1, 0 ).applyQuaternion( camera.getWorldQuaternion( cameraQuaternion ) );
+					attractors.forEach( attractor => updateAttractorLabelPosition( attractor, cameraDown ) );
+
+				}
 
 				function updateAttractorHelper( index ) {
 
@@ -346,6 +396,7 @@
 					attractor.arrow.scale.set( 1, arrowScale, 1 );
 					attractor.label.element.textContent = attractor.name;
 					attractor.label.visible = configuration ? configuration.helperShowName : false;
+					updateAttractorLabelPosition( attractor );
 
 				}
 
@@ -916,6 +967,7 @@
 					controlsMode: attractors[ 0 ].controls.mode,
 					helperVisible: attractors[ 0 ].helper.visible,
 					helperShowName: false,
+					helperShowNamesBelow: false,
 					newAttractorPlacement: 'origin',
 					newAttractorRandomDist: 3.14,
 					replayCameraTrack: 'easing',
@@ -1207,6 +1259,13 @@
 
 						configuration.helperShowName = data.helperShowName;
 						updateAttractorHelpers();
+
+					}
+
+					if ( data.helperShowNamesBelow !== undefined ) {
+
+						configuration.helperShowNamesBelow = data.helperShowNamesBelow;
+						updateAttractorLabelPositions();
 
 					}
 
@@ -1557,6 +1616,7 @@
 				} ).listen();
 
 				track( gui.add( configuration, 'helperShowName' ), 'helperShowName' ).onChange( updateAttractorHelpers ).listen();
+				track( gui.add( configuration, 'helperShowNamesBelow' ), 'helperShowNamesBelow' ).onChange( updateAttractorLabelPositions ).listen();
 
 				gui.add( configuration, 'reset' );
 
@@ -1884,7 +1944,7 @@
 				ioFolder.add( configuration, 'playbackSpeed', 0.1, 10 ).name( 'Playback Speed' );
 
 				const cameraFolder = gui.addFolder( 'Camera' );
-				track( cameraFolder.add( configuration, 'replayCameraTrack', [ 'false', 'exact', 'easing', 'orbit' ] ).name( 'Replay Camera' ), 'replayCameraTrack' ).listen();
+				track( cameraFolder.add( configuration, 'replayCameraTrack', [ 'false', 'exact', 'easing', 'orbit' ] ).name( 'Camera Replay Mode' ), 'replayCameraTrack' ).listen();
 				track( cameraFolder.add( configuration, 'replayCameraEasing', 0.01, 1 ).name( 'Camera Easing' ), 'replayCameraEasing' ).listen();
 				track( cameraFolder.add( configuration, 'cameraOrbitOn' ).name( 'Orbit On' ), 'cameraOrbitOn' ).listen();
 				track( cameraFolder.add( configuration, 'replayCameraOrbitSpeed', 0.01, 2 ).name( 'Orbit Speed' ), 'replayCameraOrbitSpeed' ).listen();
@@ -1975,7 +2035,7 @@
 
 			const clock = new THREE.Timer();
 
-			async function animate() {
+			function animate() {
 
 				clock.update()
 				const dt = clock.getDelta();
@@ -1993,10 +2053,18 @@
 					);
 					offset.applyEuler( euler );
 					camera.position.copy( controls.target ).add( offset );
+					labelsNeedUpdate = true;
 
 				}
 
 				if ( controls ) controls.update();
+
+				if ( configuration && configuration.helperShowNamesBelow && labelsNeedUpdate ) {
+
+					updateAttractorLabelPositions();
+					labelsNeedUpdate = false;
+
+				}
 
 				if ( updateCompute ) renderer.compute( updateCompute );
 
